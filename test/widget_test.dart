@@ -1,4 +1,4 @@
-// Prueba básica: la app abre en modo vista previa y muestra las 3 pestañas.
+// Prueba básica: sin conexión la app abre vacía, sin datos inventados, y muestra las 3 pestañas.
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -14,5 +14,8 @@ void main() {
     expect(find.text('Historial'), findsWidgets);
     expect(find.text('Ajustes'), findsOneWidget);
     expect(find.text('Relevadores'), findsOneWidget);
+    expect(find.text('Desconectado'), findsWidgets);
+    expect(find.text('— %'), findsWidgets);
+    expect(find.text('DEMO'), findsNothing);
   });
 }

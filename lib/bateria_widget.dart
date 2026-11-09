@@ -17,12 +17,14 @@
 import 'package:flutter/material.dart';
 
 import 'bms_api.dart'; // ModoBanco
+import 'paleta.dart';
 
 class BateriaWidget extends StatelessWidget {
   final double soc; // 0..100
   final ModoBanco modo;
   final int numCeldas;
   final bool corteActivo;
+  final bool sinDatos; // sin conexión: batería vacía y apagada
 
   const BateriaWidget({
     super.key,
@@ -30,13 +32,14 @@ class BateriaWidget extends StatelessWidget {
     this.modo = ModoBanco.reposo,
     this.numCeldas = 3,
     this.corteActivo = false,
+    this.sinDatos = false,
   });
 
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
     return Semantics(
-      label: 'Bateria al ${soc.toStringAsFixed(0)} por ciento',
+      label: sinDatos ? 'Bateria sin datos' : 'Bateria al ${soc.toStringAsFixed(0)} por ciento',
       child: AspectRatio(
         aspectRatio: 2.3,
         child: TweenAnimationBuilder<double>(
@@ -49,7 +52,7 @@ class BateriaWidget extends StatelessWidget {
               cargando: modo == ModoBanco.carga,
               numCeldas: numCeldas < 1 ? 1 : numCeldas,
               corte: corteActivo,
-              contorno: corteActivo ? Colors.red.shade600 : cs.onSurface.withValues(alpha: 0.75),
+              contorno: corteActivo ? Paleta.critico : cs.onSurface.withValues(alpha: sinDatos ? 0.3 : 0.75),
               fondo: cs.surfaceContainerHighest,
             ),
           ),
@@ -75,9 +78,9 @@ class _BateriaPainter extends CustomPainter {
   });
 
   Color get _colorNivel {
-    if (nivel < 0.20) return const Color(0xFFE53935); // rojo
-    if (nivel < 0.50) return const Color(0xFFFFA000); // ambar
-    return const Color(0xFF43A047); // verde
+    if (nivel < 0.20) return Paleta.critico;
+    if (nivel < 0.50) return Paleta.aviso;
+    return Paleta.ok;
   }
 
   @override
@@ -154,7 +157,7 @@ class _BateriaPainter extends CustomPainter {
     final h = interior.height * 0.8;
     if (corte) {
       final p = Paint()
-        ..color = Colors.red.shade700
+        ..color = Paleta.criticoFuerte
         ..strokeWidth = h * 0.14
         ..strokeCap = StrokeCap.round;
       final d = h * 0.32;

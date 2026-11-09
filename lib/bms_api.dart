@@ -1,9 +1,11 @@
 // Autor: Raul Alejandro Moreno Camargo
 // Capa de datos de la app Flutter. Habla con bms_service.py en la Raspberry Pi 5.
 //
-// RN06: la app solo LEE lecturas, alertas, límites e historial.
-//       Lo único que puede cambiar son los datos del banco (arreglo, tipo de batería
-//       y capacidad nominal). Los límites de seguridad y el rearme se hacen en la Raspberry.
+// La app LEE lecturas, alertas e historial, y puede cambiar:
+//   - el modo de operación (RN11): Apagado / Cargar batería / Motor
+//   - los datos del banco (arreglo, tipo de batería y capacidad nominal)
+//   - los límites de seguridad (temperatura, voltajes, corriente, tiempos)
+// El rearme tras sobrecorriente (RN10) sigue siendo solo en la terminal de la Raspberry.
 
 import 'dart:async';
 import 'dart:convert';
@@ -16,10 +18,10 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 enum Magnitud { temp, volt, corr }
 
 Magnitud _mag(String? s) => switch (s) {
-      'TEMP' => Magnitud.temp,
-      'VOLT' => Magnitud.volt,
-      _ => Magnitud.corr,
-    };
+  'TEMP' => Magnitud.temp,
+  'VOLT' => Magnitud.volt,
+  _ => Magnitud.corr,
+};
 
 double? _d(dynamic v) => v == null ? null : (v as num).toDouble();
 
@@ -41,13 +43,13 @@ class Sensor {
   });
 
   factory Sensor.fromJson(Map<String, dynamic> j) => Sensor(
-        id: j['id'],
-        magnitud: _mag(j['magnitud']),
-        unidad: j['unidad'] ?? '',
-        ubicacion: j['ubicacion'],
-        rol: j['rol'],
-        celdaId: j['celda_id'],
-      );
+    id: j['id'],
+    magnitud: _mag(j['magnitud']),
+    unidad: j['unidad'] ?? '',
+    ubicacion: j['ubicacion'],
+    rol: j['rol'],
+    celdaId: j['celda_id'],
+  );
 }
 
 class Alerta {
@@ -105,6 +107,9 @@ class EstadoBanco {
   final int esperaMotorS;
   final bool inicioSeguro;
   final List<String> reglasActivas;
+  final String modoOp; // RN11: APAGADO | CARGA | MOTOR (lo que eligió el usuario)
+  final int? tiempoRestanteS; // tiempo estimado (con la corriente promedio de ~30 s)
+  final String? tiempoHasta; // 'lleno' (cargando) | 'vacio' (descargando) | null
 
   EstadoBanco.fromJson(Map<String, dynamic> j)
       : bancoId = j['banco_id'] ?? 'B1',
@@ -143,7 +148,10 @@ class EstadoBanco {
             ((j['actuadores'] as Map?)?['espera_motor_s'] as num?)?.toInt() ?? 0,
         inicioSeguro = j['inicio_seguro'] ?? false,
         reglasActivas =
-            ((j['reglas_activas'] as List?) ?? []).map((e) => '$e').toList();
+        ((j['reglas_activas'] as List?) ?? []).map((e) => '$e').toList(),
+        modoOp = (j['modo_op'] ?? 'APAGADO').toString(),
+        tiempoRestanteS = (j['tiempo_restante_s'] as num?)?.toInt(),
+        tiempoHasta = j['tiempo_hasta'] as String?;
 
   bool get hayCritica => alertas.any((a) => a.esCritica);
 }
@@ -250,17 +258,48 @@ class BmsApi {
   }) async {
     final r = await http
         .put(
-          _u('/api/banco'),
-          headers: {'Content-Type': 'application/json'},
-          body: jsonEncode({
-            if (numCeldas != null) 'num_celdas': numCeldas,
-            if (quimica != null) 'quimica': quimica,
-            if (capacidadAh != null) 'capacidad_ah': capacidadAh,
-          }),
-        )
+      _u('/api/banco'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        if (numCeldas != null) 'num_celdas': numCeldas,
+        if (quimica != null) 'quimica': quimica,
+        if (capacidadAh != null) 'capacidad_ah': capacidadAh,
+      }),
+    )
         .timeout(_timeout);
     return Banco.fromJson(_json(r));
   }
+
+  /// RN11: elige el modo de operación: 'APAGADO', 'CARGA' o 'MOTOR'.
+  /// Si no se puede (banco lleno, descargado, ESP32 desconectado...) lanza Exception con el motivo.
+  Future<String> cambiarModo(String modo) async {
+    final r = await http
+        .put(
+      _u('/api/modo'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({'modo': modo}),
+    )
+        .timeout(_timeout);
+    return (_json(r) as Map)['modo'] as String;
+  }
+
+  /// Límites de seguridad y avisos (pantalla editable).
+  Future<Map<String, dynamic>> config() async =>
+      Map<String, dynamic>.from(await _get('/api/config') as Map);
+
+  /// Guarda límites (la Raspberry valida y se los manda al ESP32). Lanza Exception con el motivo.
+  Future<Map<String, dynamic>> guardarConfig(Map<String, dynamic> cambios) async {
+    final r = await http
+        .put(
+      _u('/api/config'),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode(cambios),
+    )
+        .timeout(_timeout);
+    return Map<String, dynamic>.from(_json(r) as Map);
+  }
+
+  Future<Map<String, dynamic>> restaurarConfig() => guardarConfig({'restaurar': true});
 
   Future<List<Sensor>> sensores() async =>
       (await _get('/api/sensores') as List).map((e) => Sensor.fromJson(e)).toList();
@@ -281,17 +320,17 @@ class BmsApi {
           .toList();
 
   Future<Map<String, List<PuntoSerie>>> historico(
-    Magnitud m, {
-    String rango = '-1h',
-    String cada = '1m',
-  }) async {
+      Magnitud m, {
+        String rango = '-1h',
+        String cada = '1m',
+      }) async {
     final mag = switch (m) {
       Magnitud.temp => 'TEMP',
       Magnitud.volt => 'VOLT',
       Magnitud.corr => 'CORR',
     };
     final j = await _get('/api/historico', {'magnitud': mag, 'rango': rango, 'cada': cada})
-        as Map<String, dynamic>;
+    as Map<String, dynamic>;
     return j.map((k, v) => MapEntry(
         k,
         (v as List)
@@ -328,7 +367,7 @@ class BmsLive {
     try {
       _ch = WebSocketChannel.connect(Uri.parse('ws://$host/ws'));
       _sub = _ch!.stream.listen(
-        (raw) {
+            (raw) {
           final m = jsonDecode(raw as String) as Map<String, dynamic>;
           switch (m['tipo']) {
             case 'estado':

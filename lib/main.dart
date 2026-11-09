@@ -21,21 +21,29 @@ class BmsApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) => MaterialApp(
-        title: 'BMS Banco de Baterias',
-        debugShowCheckedModeBanner: false,
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: const Color(0xFF1B6B4A),
-            brightness: Brightness.dark,
-          ),
-          useMaterial3: true,
-        ),
-        home: const PantallaPrincipal(),
-      );
+    title: 'BMS Banco de Baterias',
+    debugShowCheckedModeBanner: false,
+    theme: ThemeData(
+      colorScheme: ColorScheme.fromSeed(
+        seedColor: const Color(0xFF1B6B4A),
+        brightness: Brightness.dark,
+      ),
+      useMaterial3: true,
+    ),
+    home: const PantallaPrincipal(),
+  );
 }
 
 String _dos(int n) => n.toString().padLeft(2, '0');
 String hora(DateTime t) => '${_dos(t.hour)}:${_dos(t.minute)}:${_dos(t.second)}';
+/// 9270 -> "2 h 35 min";  540 -> "9 min";  40 -> "menos de 1 min"
+String duracion(int seg) {
+  if (seg < 60) return 'menos de 1 min';
+  final h = seg ~/ 3600, m = (seg % 3600) ~/ 60;
+  if (h == 0) return '$m min';
+  return m == 0 ? '$h h' : '$h h $m min';
+}
+
 String fechaHora(DateTime t) =>
     '${_dos(t.day)}/${_dos(t.month)}  ${hora(t)}';
 
@@ -148,7 +156,7 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
         conectado = false;
         conectando = false;
         errorConexion =
-            'No se pudo conectar con $hostLimpio.\nRevisa la IP, que el teléfono esté en el mismo WiFi '
+        'No se pudo conectar con $hostLimpio.\nRevisa la IP, que el teléfono esté en el mismo WiFi '
             'y que el servicio esté corriendo en la Raspberry (systemctl status bms).';
       });
     }
@@ -226,50 +234,50 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
 
   // -------- Datos de vista previa (sin conexión) --------
   EstadoBanco _estadoDemo() => EstadoBanco.fromJson({
-        'banco_id': 'B1 (DEMO)',
-        'valores': {
-          'V_IN': 12.60, 'V_OUT': 12.38, 'V_4V': 4.14, 'V_8V': 8.27, 'V_12V': 12.41,
-          'I_CARGA': 0.0, 'I_DESC': 3.20, 'T1': 31.5, 'T2': 30.9,
-        },
-        'v_celdas': {'C1': 4.14, 'C2': 4.13, 'C3': 4.14},
-        'v_pack': 12.41,
-        'i_main': -3.20,
-        'temp_max': 31.5,
-        'temp_min': 30.9,
-        'temp_prom': 31.2,
-        'potencia_w': -39.7,
-        'soc': 82.5,
-        'soh': 98.0,
-        'modo': 'DESCARGA',
-        'desbalance_mv': 10.0,
-        'alertas': [],
-        'corte_activo': false,
-        'conectado': false,
-        'actuadores': {'fuente': 1, 'motor': 1, 'espera_fuente_s': 0, 'espera_motor_s': 0},
-        'inicio_seguro': true,
-        'reglas_activas': [],
-      });
+    'banco_id': 'B1 (DEMO)',
+    'valores': {
+      'V_4V': 4.14, 'V_8V': 8.27, 'V_12V': 12.41,
+      'I_CARGA': 0.0, 'I_DESC': 3.20, 'T1': 31.5, 'T2': 30.9,
+    },
+    'v_celdas': {'C1': 4.14, 'C2': 4.13, 'C3': 4.14},
+    'v_pack': 12.41,
+    'i_main': -3.20,
+    'temp_max': 31.5,
+    'temp_min': 30.9,
+    'temp_prom': 31.2,
+    'potencia_w': -39.7,
+    'soc': 82.5,
+    'soh': 98.0,
+    'modo': 'DESCARGA',
+    'tiempo_restante_s': 9270,
+    'tiempo_hasta': 'vacio',
+    'desbalance_mv': 10.0,
+    'alertas': [],
+    'corte_activo': false,
+    'conectado': false,
+    'actuadores': {'fuente': 1, 'motor': 1, 'espera_fuente_s': 0, 'espera_motor_s': 0},
+    'inicio_seguro': true,
+    'reglas_activas': [],
+  });
 
   List<Sensor> _sensoresDemo() => [
-        for (final s in [
-          ['V_IN', 'VOLT', 'V', 'Entrada (fuente)'],
-          ['V_OUT', 'VOLT', 'V', 'Salida (motor)'],
-          ['V_4V', 'VOLT', 'V', 'Toma 4V (celda 1)'],
-          ['V_8V', 'VOLT', 'V', 'Toma 8V (celdas 1-2)'],
-          ['V_12V', 'VOLT', 'V', 'Toma 12V (celdas 1-3)'],
-          ['I_CARGA', 'CORR', 'A', 'Carga'],
-          ['I_DESC', 'CORR', 'A', 'Descarga (motor)'],
-          ['T1', 'TEMP', '°C', 'Interno'],
-          ['T2', 'TEMP', '°C', 'Externo'],
-        ])
-          Sensor.fromJson({'id': s[0], 'magnitud': s[1], 'unidad': s[2], 'ubicacion': s[3]})
-      ];
+    for (final s in [
+      ['V_4V', 'VOLT', 'V', 'Toma 4V (celda 1)'],
+      ['V_8V', 'VOLT', 'V', 'Toma 8V (celdas 1-2)'],
+      ['V_12V', 'VOLT', 'V', 'Toma 12V (celdas 1-3)'],
+      ['I_CARGA', 'CORR', 'A', 'Carga'],
+      ['I_DESC', 'CORR', 'A', 'Descarga (motor)'],
+      ['T1', 'TEMP', '°C', 'Interno'],
+      ['T2', 'TEMP', '°C', 'Externo'],
+    ])
+      Sensor.fromJson({'id': s[0], 'magnitud': s[1], 'unidad': s[2], 'ubicacion': s[3]})
+  ];
 
   @override
   Widget build(BuildContext c) {
     final e = estadoActual ?? _estadoDemo();
     final paginas = [
-      _VistaDashboard(estado: e, sensores: sensoresActuales, conectado: conectado),
+      _VistaDashboard(estado: e, sensores: sensoresActuales, conectado: conectado, api: _api),
       VistaHistorial(key: _claveHistorial, api: _api),
       _VistaAjustesConexion(
         hostInicial: host,
@@ -325,17 +333,18 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
 //  Iconos y colores por tipo de alerta / evento
 // ============================================================
 IconData iconoAlerta(String? tipo) => switch (tipo) {
-      'RN01' => Icons.local_fire_department,
-      'RN02' => Icons.battery_alert,
-      'RN03' => Icons.battery_full,
-      'RN10' => Icons.bolt,
-      'RN05' => Icons.sensors_off,
-      'RN09' => Icons.trending_up,
-      'CALENTANDO' => Icons.thermostat,
-      'SOC_BAJO' => Icons.battery_2_bar,
-      'SIN_DATOS' => Icons.link_off,
-      _ => Icons.warning_amber,
-    };
+  'RN01' => Icons.local_fire_department,
+  'RN02' => Icons.battery_alert,
+  'RN03' => Icons.battery_full,
+  'RN10' => Icons.bolt,
+  'RN05' => Icons.sensors_off,
+  'RN09' => Icons.trending_up,
+  'ERROR_MODO' => Icons.block,
+  'CALENTANDO' => Icons.thermostat,
+  'SOC_BAJO' => Icons.battery_2_bar,
+  'SIN_DATOS' => Icons.link_off,
+  _ => Icons.warning_amber,
+};
 
 // ============================================================
 //  Pestaña 1: Monitoreo
@@ -344,11 +353,13 @@ class _VistaDashboard extends StatelessWidget {
   final EstadoBanco estado;
   final List<Sensor> sensores;
   final bool conectado;
+  final BmsApi? api;
 
   const _VistaDashboard({
     required this.estado,
     required this.sensores,
     required this.conectado,
+    required this.api,
   });
 
   Sensor? _meta(String id) {
@@ -376,7 +387,7 @@ class _VistaDashboard extends StatelessWidget {
                     color: conectado ? Colors.green : Colors.orange,
                     fontWeight: FontWeight.bold)),
             backgroundColor:
-                (conectado ? Colors.green : Colors.orange).withValues(alpha: 0.15),
+            (conectado ? Colors.green : Colors.orange).withValues(alpha: 0.15),
             side: BorderSide.none,
           ),
         ]),
@@ -392,6 +403,8 @@ class _VistaDashboard extends StatelessWidget {
             ),
           // ---------- ALERTAS ARRIBA ----------
           if (conectado) _PanelAlertas(alertas: estado.alertas),
+          _TarjetaControl(e: estado, api: conectado ? api : null),
+          const SizedBox(height: 12),
           _TarjetaReles(e: estado, conectado: conectado),
           const SizedBox(height: 12),
           _TarjetaSoc(e: estado),
@@ -423,52 +436,52 @@ class _VistaDashboard extends StatelessWidget {
     return [Magnitud.volt, Magnitud.corr, Magnitud.temp]
         .where((m) => grupos.containsKey(m))
         .map((m) => Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(children: [
-                        Icon(iconos[m], size: 20),
-                        const SizedBox(width: 8),
-                        Text('${titulos[m]}  (${grupos[m]!.length})',
-                            style: Theme.of(context).textTheme.titleMedium),
-                      ]),
-                      const SizedBox(height: 8),
-                      ...grupos[m]!.map((kv) {
-                        final meta = _meta(kv.key)!;
-                        final esBanco = meta.rol == 'PACK_V';
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 5),
-                          child: Row(children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(meta.ubicacion ?? kv.key,
-                                      style: TextStyle(
-                                          fontSize: 14,
-                                          fontWeight: esBanco ? FontWeight.bold : null)),
-                                  Text(esBanco ? '${kv.key} · voltaje del banco' : kv.key,
-                                      style: Theme.of(context).textTheme.labelSmall),
-                                ],
-                              ),
-                            ),
-                            Text('${kv.value.toStringAsFixed(2)} ${meta.unidad}',
-                                style: const TextStyle(
-                                    fontSize: 20,
-                                    fontWeight: FontWeight.w600,
-                                    fontFeatures: [FontFeature.tabularFigures()])),
-                          ]),
-                        );
-                      }),
-                    ],
-                  ),
-                ),
-              ),
-            ))
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(children: [
+                Icon(iconos[m], size: 20),
+                const SizedBox(width: 8),
+                Text('${titulos[m]}  (${grupos[m]!.length})',
+                    style: Theme.of(context).textTheme.titleMedium),
+              ]),
+              const SizedBox(height: 8),
+              ...grupos[m]!.map((kv) {
+                final meta = _meta(kv.key)!;
+                final esBanco = meta.rol == 'PACK_V';
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 5),
+                  child: Row(children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(meta.ubicacion ?? kv.key,
+                              style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: esBanco ? FontWeight.bold : null)),
+                          Text(esBanco ? '${kv.key} · voltaje del banco' : kv.key,
+                              style: Theme.of(context).textTheme.labelSmall),
+                        ],
+                      ),
+                    ),
+                    Text('${kv.value.toStringAsFixed(2)} ${meta.unidad}',
+                        style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w600,
+                            fontFeatures: [FontFeature.tabularFigures()])),
+                  ]),
+                );
+              }),
+            ],
+          ),
+        ),
+      ),
+    ))
         .toList();
   }
 }
@@ -521,12 +534,145 @@ class _TarjetaAlerta extends StatelessWidget {
             const SizedBox(height: 6),
             Text(
               '${a.esCritica ? 'CRÍTICA' : 'AVISO'} · '
-              '${a.corta ? 'protección activa' : 'solo informativa'} · desde ${hora(a.ts)}',
+                  '${a.corta ? 'protección activa' : 'solo informativa'} · desde ${hora(a.ts)}',
               style: Theme.of(c).textTheme.labelSmall,
             ),
           ]),
         ),
       ]),
+    );
+  }
+}
+
+// ---------- Control: modo de operación (RN11) ----------
+class _TarjetaControl extends StatefulWidget {
+  final EstadoBanco e;
+  final BmsApi? api; // null = sin conexión: el control se ve pero no se puede usar
+  const _TarjetaControl({required this.e, required this.api});
+
+  @override
+  State<_TarjetaControl> createState() => _TarjetaControlState();
+}
+
+class _TarjetaControlState extends State<_TarjetaControl> {
+  String? _pedido; // modo pedido que el ESP32 todavía no confirma
+  DateTime _pedidoEn = DateTime(2000);
+  bool _enviando = false;
+
+  static const _ayuda = {
+    'APAGADO': 'Fuente y motor desconectados.',
+    'CARGA': 'Fuente conectada y motor bloqueado. Se apaga sola cuando el banco se llena.',
+    'MOTOR': 'Motor encendido y carga bloqueada. Se apaga solo si el banco se descarga o hay sobrecorriente.',
+  };
+
+  String get _seleccionado {
+    final e = widget.e;
+    if (_pedido != null &&
+        _pedido != e.modoOp &&
+        DateTime.now().difference(_pedidoEn).inSeconds < 3) {
+      return _pedido!; // se muestra lo pedido mientras llega la confirmación
+    }
+    return e.modoOp;
+  }
+
+  Future<void> _cambiar(String modo) async {
+    final api = widget.api;
+    if (api == null || modo == widget.e.modoOp) return;
+    if (modo == 'MOTOR') {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (d) => AlertDialog(
+          icon: const Icon(Icons.speed),
+          title: const Text('¿Encender el motor?'),
+          content: const Text('Se desconectará la fuente de carga mientras el motor esté encendido.'),
+          actions: [
+            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancelar')),
+            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Encender')),
+          ],
+        ),
+      );
+      if (ok != true || !mounted) return;
+    }
+    setState(() {
+      _enviando = true;
+      _pedido = modo;
+      _pedidoEn = DateTime.now();
+    });
+    try {
+      await api.cambiarModo(modo);
+    } catch (err) {
+      if (!mounted) return;
+      _pedido = null;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        backgroundColor: Colors.orange.shade800,
+        content: Text('$err'.replaceFirst('Exception: ', '')),
+      ));
+    } finally {
+      if (mounted) setState(() => _enviando = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext c) {
+    final e = widget.e;
+    final activo = widget.api != null;
+    final lleno = e.reglasActivas.contains('RN03');
+    final bloqueoMotor = e.reglasActivas.contains('RN02') || e.reglasActivas.contains('RN10');
+    final sel = _seleccionado;
+    String? aviso;
+    if (!activo) {
+      aviso = 'Conéctate a la Raspberry para controlar el banco.';
+    } else if (lleno) {
+      aviso = 'El banco está cargado: no se puede elegir Cargar.';
+    } else if (bloqueoMotor) {
+      aviso = e.reglasActivas.contains('RN10')
+          ? 'Hubo sobrecorriente: rearma en la Raspberry (bms rearmar) antes de usar el motor.'
+          : 'El banco está descargado: cárgalo antes de usar el motor.';
+    }
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Text('Control', style: Theme.of(c).textTheme.titleMedium),
+            const Spacer(),
+            if (_enviando)
+              const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+          ]),
+          const SizedBox(height: 10),
+          SizedBox(
+            width: double.infinity,
+            child: SegmentedButton<String>(
+              showSelectedIcon: false,
+              segments: [
+                ButtonSegment(
+                    value: 'APAGADO',
+                    label: const Text('Apagado'),
+                    icon: const Icon(Icons.power_settings_new),
+                    enabled: activo),
+                ButtonSegment(
+                    value: 'CARGA',
+                    label: const Text('Cargar'),
+                    icon: const Icon(Icons.battery_charging_full),
+                    enabled: activo && !lleno),
+                ButtonSegment(
+                    value: 'MOTOR',
+                    label: const Text('Motor'),
+                    icon: const Icon(Icons.speed),
+                    enabled: activo && !bloqueoMotor),
+              ],
+              selected: {sel},
+              onSelectionChanged: _enviando ? null : (s) => _cambiar(s.first),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(_ayuda[sel] ?? '', style: const TextStyle(fontSize: 13)),
+          if (aviso != null) ...[
+            const SizedBox(height: 6),
+            Text(aviso, style: TextStyle(fontSize: 12.5, color: Colors.orange.shade300)),
+          ],
+        ]),
+      ),
     );
   }
 }
@@ -545,12 +691,17 @@ class _TarjetaReles extends StatelessWidget {
     'RN10': 'sobrecorriente (rearmar en la Raspberry)',
   };
 
-  String _detalle(bool? activo, List<String> reglas, int espera) {
+  static const _nombreModo = {'APAGADO': 'Apagado', 'CARGA': 'Cargar batería', 'MOTOR': 'Motor'};
+
+  String _detalle(bool? activo, List<String> reglas, int espera, String modoQueLoUsa) {
     if (!conectado) return 'Sin datos';
     if (activo == null) return 'Esperando datos del ESP32';
     if (activo) return 'Deja pasar la energía';
     if (!e.inicioSeguro) return 'Arranque seguro: esperando lectura válida';
     final motivos = reglas.where(e.reglasActivas.contains).map((r) => _motivo[r]!).toList();
+    if (motivos.isEmpty && e.modoOp != modoQueLoUsa) {
+      return 'Desconectado por el modo: ${_nombreModo[e.modoOp] ?? e.modoOp}';
+    }
     var t = motivos.isEmpty ? 'Cortado' : 'Cortado por ${motivos.join(', ')}';
     if (espera > 0) t += ' · reconecta en $espera s';
     return t;
@@ -593,19 +744,19 @@ class _TarjetaReles extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) => Card(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('Relevadores', style: Theme.of(c).textTheme.titleMedium),
-            const SizedBox(height: 4),
-            _fila(c, 'Actuador 1 · Fuente', 'Conecta la fuente al banco (carga)', e.actFuente,
-                _detalle(e.actFuente, const ['RN01', 'RN03', 'RN05'], e.esperaFuenteS)),
-            const Divider(height: 8),
-            _fila(c, 'Actuador 2 · Motor', 'Conecta el banco al motor (descarga)', e.actMotor,
-                _detalle(e.actMotor, const ['RN01', 'RN02', 'RN05', 'RN10'], e.esperaMotorS)),
-          ]),
-        ),
-      );
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Relevadores', style: Theme.of(c).textTheme.titleMedium),
+        const SizedBox(height: 4),
+        _fila(c, 'Actuador 1 · Fuente', 'Conecta la fuente al banco (carga)', e.actFuente,
+            _detalle(e.actFuente, const ['RN01', 'RN03', 'RN05'], e.esperaFuenteS, 'CARGA')),
+        const Divider(height: 8),
+        _fila(c, 'Actuador 2 · Motor', 'Conecta el banco al motor (descarga)', e.actMotor,
+            _detalle(e.actMotor, const ['RN01', 'RN02', 'RN05', 'RN10'], e.esperaMotorS, 'MOTOR')),
+      ]),
+    ),
+  );
 }
 
 // ---------- SOC / SOH con la batería dibujada ----------
@@ -643,10 +794,22 @@ class _TarjetaSoc extends StatelessWidget {
           const SizedBox(height: 8),
           Text('${e.soc.toStringAsFixed(0)} %',
               style: const TextStyle(fontSize: 44, fontWeight: FontWeight.w300)),
+          if (e.tiempoRestanteS != null && e.tiempoHasta != null)
+            Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+              Icon(Icons.schedule,
+                  size: 16, color: e.tiempoHasta == 'lleno' ? Colors.green : Colors.orange),
+              const SizedBox(width: 6),
+              Text(
+                  '≈ ${duracion(e.tiempoRestanteS!)} '
+                      '${e.tiempoHasta == 'lleno' ? 'para llenarse' : 'para descargarse'}',
+                  style: TextStyle(
+                      fontSize: 14,
+                      color: e.tiempoHasta == 'lleno' ? Colors.green : Colors.orange)),
+            ]),
           const SizedBox(height: 12),
           Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
             _Metrica('SOH', '${e.soh.toStringAsFixed(0)} %'),
-            _Metrica('Potencia', '${e.potenciaW.toStringAsFixed(0)} W'),
+            _MetricaPotencia(e.potenciaW),
             if (e.vPack != null) _Metrica('Banco', '${e.vPack!.toStringAsFixed(2)} V'),
           ]),
         ]),
@@ -661,10 +824,35 @@ class _Metrica extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) => Column(children: [
-        Text(etiqueta, style: Theme.of(c).textTheme.labelSmall),
-        const SizedBox(height: 2),
-        Text(valor, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-      ]);
+    Text(etiqueta, style: Theme.of(c).textTheme.labelSmall),
+    const SizedBox(height: 2),
+    Text(valor, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+  ]);
+}
+
+/// Potencia sin signo, con flecha: ↓ verde = entra al banco, ↑ naranja = sale hacia el motor.
+class _MetricaPotencia extends StatelessWidget {
+  final double w;
+  const _MetricaPotencia(this.w);
+
+  @override
+  Widget build(BuildContext c) {
+    final reposo = w.abs() < 0.5;
+    final entra = w > 0;
+    final color = reposo ? null : (entra ? Colors.green : Colors.orange);
+    return Column(children: [
+      Text('Potencia', style: Theme.of(c).textTheme.labelSmall),
+      const SizedBox(height: 2),
+      Row(mainAxisSize: MainAxisSize.min, children: [
+        if (!reposo)
+          Icon(entra ? Icons.arrow_downward : Icons.arrow_upward, size: 18, color: color),
+        Text('${w.abs().toStringAsFixed(w.abs() < 10 ? 1 : 0)} W',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: color)),
+      ]),
+      Text(reposo ? 'sin flujo' : (entra ? 'entrando' : 'saliendo'),
+          style: TextStyle(fontSize: 11, color: color)),
+    ]);
+  }
 }
 
 class _TarjetaCeldas extends StatelessWidget {
@@ -686,19 +874,19 @@ class _TarjetaCeldas extends StatelessWidget {
           ]),
           const SizedBox(height: 12),
           ...e.vCeldas.entries.map((kv) => Padding(
-                padding: const EdgeInsets.symmetric(vertical: 3),
-                child: Row(children: [
-                  SizedBox(width: 36, child: Text(kv.key, style: const TextStyle(fontSize: 12))),
-                  Expanded(
-                    child: LinearProgressIndicator(
-                      value: maxV > 0 ? (kv.value / maxV).clamp(0.0, 1.0).toDouble() : 0.0,
-                      minHeight: 8,
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Text('${kv.value.toStringAsFixed(2)} V', style: const TextStyle(fontSize: 13)),
-                ]),
-              )),
+            padding: const EdgeInsets.symmetric(vertical: 3),
+            child: Row(children: [
+              SizedBox(width: 36, child: Text(kv.key, style: const TextStyle(fontSize: 12))),
+              Expanded(
+                child: LinearProgressIndicator(
+                  value: maxV > 0 ? (kv.value / maxV).clamp(0.0, 1.0).toDouble() : 0.0,
+                  minHeight: 8,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Text('${kv.value.toStringAsFixed(2)} V', style: const TextStyle(fontSize: 13)),
+            ]),
+          )),
         ]),
       ),
     );
@@ -753,19 +941,19 @@ class VistaHistorialState extends State<VistaHistorial> {
   }
 
   (IconData, Color) _estilo(Evento e) => switch (e.evento) {
-        'CORTE' => (iconoAlerta(e.regla),
-            e.severidad == 'CRITICA' ? Colors.red : Colors.orange),
-        'RECONEXION' => (Icons.power, Colors.green),
-        'REARME' || 'SOLICITUD_REARME' => (Icons.restart_alt, Colors.lightBlue),
-        'TENDENCIA' => (Icons.trending_up, Colors.amber),
-        'AVISO' => (Icons.warning_amber, Colors.amber),
-        'MODO' => (Icons.swap_vert, Colors.lightBlue),
-        'INICIO_SEGURO' => (Icons.verified_user, Colors.green),
-        'SIN_DATOS_ESP32' => (Icons.link_off, Colors.grey),
-        'RECONEXION_ESP32' => (Icons.link, Colors.green),
-        'CONFIG' => (Icons.tune, Colors.blueGrey),
-        _ => (Icons.info_outline, Colors.blueGrey),
-      };
+    'CORTE' => (iconoAlerta(e.regla),
+    e.severidad == 'CRITICA' ? Colors.red : Colors.orange),
+    'RECONEXION' => (Icons.power, Colors.green),
+    'REARME' || 'SOLICITUD_REARME' => (Icons.restart_alt, Colors.lightBlue),
+    'TENDENCIA' => (Icons.trending_up, Colors.amber),
+    'AVISO' => (Icons.warning_amber, Colors.amber),
+    'MODO' => (Icons.swap_vert, Colors.lightBlue),
+    'INICIO_SEGURO' => (Icons.verified_user, Colors.green),
+    'SIN_DATOS_ESP32' => (Icons.link_off, Colors.grey),
+    'RECONEXION_ESP32' => (Icons.link, Colors.green),
+    'CONFIG' => (Icons.tune, Colors.blueGrey),
+    _ => (Icons.info_outline, Colors.blueGrey),
+  };
 
   String _valores(Evento e) {
     final p = <String>[];
@@ -797,85 +985,85 @@ class VistaHistorialState extends State<VistaHistorial> {
       ),
       body: widget.api == null
           ? const Center(
-              child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('Conéctate a la Raspberry en Ajustes para ver el historial.',
-                    textAlign: TextAlign.center),
-              ),
-            )
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text('Conéctate a la Raspberry en Ajustes para ver el historial.',
+              textAlign: TextAlign.center),
+        ),
+      )
           : Column(children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                child: SegmentedButton<bool>(
-                  segments: const [
-                    ButtonSegment(value: false, label: Text('Todo'), icon: Icon(Icons.list)),
-                    ButtonSegment(
-                        value: true, label: Text('Solo fallas'), icon: Icon(Icons.warning_amber)),
-                  ],
-                  selected: {soloFallas},
-                  onSelectionChanged: (s) {
-                    setState(() => soloFallas = s.first);
-                    cargar();
-                  },
-                ),
-              ),
-              if (cargando) const LinearProgressIndicator(),
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Text(error!, style: const TextStyle(color: Colors.red)),
-                ),
-              Expanded(
-                child: RefreshIndicator(
-                  onRefresh: cargar,
-                  child: eventos.isEmpty && !cargando
-                      ? ListView(children: const [
-                          SizedBox(height: 120),
-                          Center(child: Text('Sin eventos registrados')),
-                        ])
-                      : ListView.separated(
-                          padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
-                          itemCount: eventos.length,
-                          separatorBuilder: (_, __) => const Divider(height: 1),
-                          itemBuilder: (_, i) {
-                            final e = eventos[i];
-                            final (icono, color) = _estilo(e);
-                            final vals = _valores(e);
-                            return ListTile(
-                              contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-                              leading: CircleAvatar(
-                                backgroundColor: color.withValues(alpha: 0.18),
-                                child: Icon(icono, color: color),
-                              ),
-                              title: Text(e.mensaje, style: const TextStyle(fontSize: 13.5)),
-                              subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const SizedBox(height: 3),
-                                  Text(
-                                      '${fechaHora(e.fecha)}  ·  ${e.evento}'
-                                      '${e.regla != null ? ' ${e.regla}' : ''}',
-                                      style: TextStyle(
-                                          fontSize: 11.5,
-                                          color: color,
-                                          fontWeight: FontWeight.w600)),
-                                  if (vals.isNotEmpty)
-                                    Text(vals, style: const TextStyle(fontSize: 11)),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Text(
-                  'Para borrar el historial, en la Raspberry: bms borrar eventos',
-                  style: Theme.of(c).textTheme.labelSmall,
-                ),
-              ),
-            ]),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+          child: SegmentedButton<bool>(
+            segments: const [
+              ButtonSegment(value: false, label: Text('Todo'), icon: Icon(Icons.list)),
+              ButtonSegment(
+                  value: true, label: Text('Solo fallas'), icon: Icon(Icons.warning_amber)),
+            ],
+            selected: {soloFallas},
+            onSelectionChanged: (s) {
+              setState(() => soloFallas = s.first);
+              cargar();
+            },
+          ),
+        ),
+        if (cargando) const LinearProgressIndicator(),
+        if (error != null)
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Text(error!, style: const TextStyle(color: Colors.red)),
+          ),
+        Expanded(
+          child: RefreshIndicator(
+            onRefresh: cargar,
+            child: eventos.isEmpty && !cargando
+                ? ListView(children: const [
+              SizedBox(height: 120),
+              Center(child: Text('Sin eventos registrados')),
+            ])
+                : ListView.separated(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 24),
+              itemCount: eventos.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (_, i) {
+                final e = eventos[i];
+                final (icono, color) = _estilo(e);
+                final vals = _valores(e);
+                return ListTile(
+                  contentPadding: const EdgeInsets.symmetric(horizontal: 4),
+                  leading: CircleAvatar(
+                    backgroundColor: color.withValues(alpha: 0.18),
+                    child: Icon(icono, color: color),
+                  ),
+                  title: Text(e.mensaje, style: const TextStyle(fontSize: 13.5)),
+                  subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const SizedBox(height: 3),
+                      Text(
+                          '${fechaHora(e.fecha)}  ·  ${e.evento}'
+                              '${e.regla != null ? ' ${e.regla}' : ''}',
+                          style: TextStyle(
+                              fontSize: 11.5,
+                              color: color,
+                              fontWeight: FontWeight.w600)),
+                      if (vals.isNotEmpty)
+                        Text(vals, style: const TextStyle(fontSize: 11)),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Text(
+            'Para borrar el historial, en la Raspberry: bms borrar eventos',
+            style: Theme.of(c).textTheme.labelSmall,
+          ),
+        ),
+      ]),
     );
   }
 }
@@ -910,7 +1098,7 @@ class _VistaAjustesConexion extends StatefulWidget {
 
 class _VistaAjustesConexionState extends State<_VistaAjustesConexion> {
   late final TextEditingController _ctrlHost =
-      TextEditingController(text: widget.hostInicial);
+  TextEditingController(text: widget.hostInicial);
 
   @override
   void didUpdateWidget(_VistaAjustesConexion old) {
@@ -991,20 +1179,20 @@ class _VistaAjustesConexionState extends State<_VistaAjustesConexion> {
                   width: double.infinity,
                   child: widget.conectado
                       ? OutlinedButton.icon(
-                          onPressed: widget.onDesconectar,
-                          icon: const Icon(Icons.link_off, color: Colors.red),
-                          label: const Text('Desconectar', style: TextStyle(color: Colors.red)),
-                        )
+                    onPressed: widget.onDesconectar,
+                    icon: const Icon(Icons.link_off, color: Colors.red),
+                    label: const Text('Desconectar', style: TextStyle(color: Colors.red)),
+                  )
                       : FilledButton.icon(
-                          onPressed: widget.conectando ? null : widget.onConectar,
-                          icon: widget.conectando
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child: CircularProgressIndicator(strokeWidth: 2))
-                              : const Icon(Icons.link),
-                          label: Text(widget.conectando ? 'Conectando...' : 'Conectar'),
-                        ),
+                    onPressed: widget.conectando ? null : widget.onConectar,
+                    icon: widget.conectando
+                        ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(Icons.link),
+                    label: Text(widget.conectando ? 'Conectando...' : 'Conectar'),
+                  ),
                 ),
                 if (widget.errorConexion != null) ...[
                   const SizedBox(height: 12),
@@ -1029,9 +1217,9 @@ class _VistaAjustesConexionState extends State<_VistaAjustesConexion> {
               ),
               const Divider(height: 1),
               ListTile(
-                leading: const Icon(Icons.lock_outline, color: Colors.orange),
+                leading: const Icon(Icons.tune, color: Colors.orange),
                 title: const Text('Límites de seguridad'),
-                subtitle: const Text('Solo lectura: se cambian en la Raspberry'),
+                subtitle: const Text('Temperatura, voltajes, corriente y tiempos'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _abrir(c, (api) => PantallaUmbrales(api: api)),
               ),
@@ -1055,75 +1243,246 @@ class _Banner extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) => Container(
-        margin: const EdgeInsets.only(bottom: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.15),
-          border: Border.all(color: color),
-          borderRadius: BorderRadius.circular(12),
-        ),
-        child: Row(children: [
-          Icon(icono, color: color),
-          const SizedBox(width: 12),
-          Expanded(
-              child: Text(texto,
-                  style: TextStyle(color: color, fontWeight: FontWeight.w600))),
-        ]),
-      );
+    margin: const EdgeInsets.only(bottom: 12),
+    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+    decoration: BoxDecoration(
+      color: color.withValues(alpha: 0.15),
+      border: Border.all(color: color),
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Row(children: [
+      Icon(icono, color: color),
+      const SizedBox(width: 12),
+      Expanded(
+          child: Text(texto,
+              style: TextStyle(color: color, fontWeight: FontWeight.w600))),
+    ]),
+  );
 }
 
 // ============================================================
-//  Límites de seguridad (solo lectura, RN06 / RN08)
+//  Límites de seguridad (editables para la presentación)
 // ============================================================
-class PantallaUmbrales extends StatelessWidget {
+class PantallaUmbrales extends StatefulWidget {
   final BmsApi api;
   const PantallaUmbrales({super.key, required this.api});
 
-  static const _info = {
-    'RN01': ('Temperatura máxima', '°C', 'Si cualquiera de los 2 sensores la pasa, se cortan fuente y motor'),
-    'RN02': ('Voltaje mínimo del banco', 'V', 'Debajo de este valor se corta el motor (deja reserva)'),
-    'RN03': ('Voltaje máximo del banco', 'V', 'Arriba de este valor se corta la fuente (banco cargado)'),
-    'RN10': ('Corriente máxima del motor', 'A', 'Si el motor la pasa se corta y hay que rearmar'),
-    'AVISO': ('Aviso de calentamiento', '°C', 'Solo avisa en la app, no corta nada'),
-  };
+  @override
+  State<PantallaUmbrales> createState() => _PantallaUmbralesState();
+}
+
+class _Campo {
+  final String clave, titulo, unidad, regla;
+  final bool entero;
+  const _Campo(this.clave, this.titulo, this.unidad, this.regla, {this.entero = false});
+}
+
+class _PantallaUmbralesState extends State<PantallaUmbrales> {
+  // (sección, campos)
+  static const _secciones = [
+    ('Temperatura', [
+      _Campo('temp_max', 'Temperatura máxima', '°C', 'RN01'),
+      _Campo('hist_temp', 'Margen para reconectar', '°C', 'RN04'),
+      _Campo('aviso_temp_c', 'Aviso de calentamiento', '°C', 'aviso'),
+    ]),
+    ('Voltaje del banco', [
+      _Campo('volt_min', 'Voltaje mínimo (corta el motor)', 'V', 'RN02'),
+      _Campo('hist_v_min', 'Margen para reconectar el motor', 'V', 'RN04'),
+      _Campo('volt_max', 'Voltaje máximo (corta la fuente)', 'V', 'RN03'),
+      _Campo('hist_v_max', 'Margen para reconectar la fuente', 'V', 'RN04'),
+    ]),
+    ('Corriente y tiempos', [
+      _Campo('corr_max', 'Corriente máxima del motor', 'A', 'RN10'),
+      _Campo('t_reconexion_s', 'Tiempo para reconectar', 's', 'RN04', entero: true),
+      _Campo('aviso_soc_bajo', 'Aviso de poca carga', '%', 'aviso'),
+    ]),
+  ];
+
+  final _ctrl = <String, TextEditingController>{};
+  Map<String, dynamic>? _original;
+  bool _guardando = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _cargar();
+  }
+
+  @override
+  void dispose() {
+    for (final c in _ctrl.values) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  String _fmt(dynamic v, bool entero) =>
+      v == null ? '' : (entero ? (v as num).round().toString() : (v as num).toDouble().toString());
+
+  Future<void> _cargar() async {
+    try {
+      final cfg = await widget.api.config();
+      if (!mounted) return;
+      setState(() {
+        _original = cfg;
+        _error = null;
+        for (final (_, campos) in _secciones) {
+          for (final f in campos) {
+            (_ctrl[f.clave] ??= TextEditingController()).text = _fmt(cfg[f.clave], f.entero);
+          }
+        }
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e'.replaceFirst('Exception: ', ''));
+    }
+  }
+
+  double? _num(String clave) => double.tryParse((_ctrl[clave]?.text ?? '').replaceAll(',', '.'));
+
+  /// Texto de ayuda que se actualiza mientras escribes.
+  String? _ayuda(String clave) {
+    String f(double? x) => x == null ? '?' : x.toStringAsFixed(x % 1 == 0 ? 0 : 2);
+    switch (clave) {
+      case 'temp_max':
+        return 'Arriba de esto se cortan fuente y motor';
+      case 'hist_temp':
+        final t = _num('temp_max'), h = _num('hist_temp');
+        return 'Se reconecta abajo de ${f(t != null && h != null ? t - h : null)} °C';
+      case 'volt_min':
+        return 'Abajo de esto se corta el motor (deja reserva)';
+      case 'hist_v_min':
+        final v = _num('volt_min'), h = _num('hist_v_min');
+        return 'El motor vuelve arriba de ${f(v != null && h != null ? v + h : null)} V';
+      case 'volt_max':
+        return 'Arriba de esto se corta la fuente (banco lleno)';
+      case 'hist_v_max':
+        final v = _num('volt_max'), h = _num('hist_v_max');
+        return 'La fuente vuelve abajo de ${f(v != null && h != null ? v - h : null)} V';
+      case 'corr_max':
+        return 'Arriba de esto se corta el motor y hay que rearmar';
+      case 't_reconexion_s':
+        return 'Tiempo seguido en rango seguro antes de reconectar';
+      case 'aviso_temp_c':
+        return 'Solo avisa en la app, no corta';
+      case 'aviso_soc_bajo':
+        return 'Solo avisa en la app, no corta';
+    }
+    return null;
+  }
+
+  Future<void> _guardar() async {
+    final cambios = <String, dynamic>{};
+    for (final (_, campos) in _secciones) {
+      for (final f in campos) {
+        final v = _num(f.clave);
+        if (v == null) {
+          setState(() => _error = 'Revisa "${f.titulo}": escribe un número');
+          return;
+        }
+        final antes = (_original?[f.clave] as num?)?.toDouble();
+        if (antes == null || (antes - v).abs() > 1e-6) cambios[f.clave] = f.entero ? v.round() : v;
+      }
+    }
+    if (cambios.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('No hay cambios.')));
+      return;
+    }
+    await _enviar(() => widget.api.guardarConfig(cambios), 'Guardado y enviado al ESP32');
+  }
+
+  Future<void> _restaurar() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('¿Restaurar valores por defecto?'),
+        content: Text('Se usarán los valores normales para tu banco '
+            '(${_original?['num_celdas'] ?? 3}S ${_original?['quimica'] == 'LIFEPO4' ? 'LiFePO4' : 'Li-ion'}).'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Restaurar')),
+        ],
+      ),
+    );
+    if (ok == true) await _enviar(widget.api.restaurarConfig, 'Valores por defecto restaurados');
+  }
+
+  Future<void> _enviar(Future<Map<String, dynamic>> Function() accion, String exito) async {
+    setState(() {
+      _guardando = true;
+      _error = null;
+    });
+    try {
+      await accion();
+      if (!mounted) return;
+      await _cargar();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(exito)));
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e'.replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _guardando = false);
+    }
+  }
 
   @override
   Widget build(BuildContext c) => Scaffold(
-        appBar: AppBar(title: const Text('Límites de seguridad')),
-        body: FutureBuilder<List<Umbral>>(
-          future: api.umbrales(),
-          builder: (_, snap) {
-            if (snap.hasError) {
-              return Center(child: Text('${snap.error}'.replaceFirst('Exception: ', '')));
-            }
-            if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-            return ListView(padding: const EdgeInsets.all(12), children: [
-              ...snap.data!.map((u) {
-                final (nombre, unidad, desc) =
-                    _info[u.regla] ?? (u.magnitud, '', u.accion);
-                final valor = u.valorMax ?? u.valorMin;
-                return Card(
-                  child: ListTile(
-                    leading: Icon(u.accion == 'CORTE' ? Icons.power_settings_new : Icons.notifications,
-                        color: u.accion == 'CORTE' ? Colors.red : Colors.orange),
-                    title: Text(nombre),
-                    subtitle: Text('$desc${u.regla != null && u.regla != 'AVISO' ? '  (${u.regla})' : ''}'),
-                    trailing: Text(valor == null ? '—' : '${valor.toStringAsFixed(1)} $unidad',
-                        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                  ),
-                );
-              }),
-              const SizedBox(height: 12),
-              const _Banner(
-                icono: Icons.lock_outline,
-                texto: 'Por seguridad (RN08) estos valores solo se cambian en la terminal de la '
-                    'Raspberry, por ejemplo:  bms set temp_max=45',
-                color: Colors.blueGrey,
-              ),
-            ]);
-          },
+    appBar: AppBar(title: const Text('Límites de seguridad')),
+    body: _original == null && _error == null
+        ? const Center(child: CircularProgressIndicator())
+        : ListView(padding: const EdgeInsets.all(16), children: [
+      for (final (titulo, campos) in _secciones) ...[
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 8),
+          child: Text(titulo,
+              style: Theme.of(c).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
         ),
-      );
+        for (final f in campos)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 14),
+            child: TextField(
+              controller: _ctrl[f.clave] ??= TextEditingController(),
+              enabled: !_guardando,
+              keyboardType: TextInputType.numberWithOptions(decimal: !f.entero),
+              onChanged: (_) => setState(() {}),
+              decoration: InputDecoration(
+                labelText: f.titulo,
+                suffixText: f.unidad,
+                helperText: _ayuda(f.clave),
+                border: const OutlineInputBorder(),
+                prefixIcon: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text(f.regla == 'aviso' ? '🔔' : f.regla,
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.bold)),
+                ),
+              ),
+            ),
+          ),
+      ],
+      if (_error != null)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Text(_error!, style: const TextStyle(color: Colors.red)),
+        ),
+      FilledButton.icon(
+        onPressed: _guardando || _original == null ? null : _guardar,
+        icon: _guardando
+            ? const SizedBox(
+            width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+            : const Icon(Icons.save),
+        label: const Text('Guardar y enviar al ESP32'),
+      ),
+      const SizedBox(height: 8),
+      OutlinedButton.icon(
+        onPressed: _guardando || _original == null ? null : _restaurar,
+        icon: const Icon(Icons.restart_alt),
+        label: const Text('Restaurar valores por defecto'),
+      ),
+      const SizedBox(height: 16),
+      Text('El rearme después de una sobrecorriente (RN10) se hace en la Raspberry: bms rearmar',
+          style: Theme.of(c).textTheme.labelSmall),
+    ]),
+  );
 }
 
 // ============================================================
@@ -1206,64 +1565,64 @@ class _PantallaBancoState extends State<PantallaBanco> {
       body: b == null && error == null
           ? const Center(child: CircularProgressIndicator())
           : ListView(padding: const EdgeInsets.all(16), children: [
-              Text('Arreglo (celdas en serie)', style: Theme.of(c).textTheme.labelLarge),
-              const SizedBox(height: 8),
-              SegmentedButton<int>(
-                segments: const [
-                  ButtonSegment(value: 1, label: Text('1S')),
-                  ButtonSegment(value: 2, label: Text('2S')),
-                  ButtonSegment(value: 3, label: Text('3S')),
-                ],
-                selected: {celdas},
-                onSelectionChanged: (s) => setState(() => celdas = s.first),
-              ),
-              const SizedBox(height: 6),
-              Text('La placa mide 3 tomas (4V, 8V, 12V), por eso el máximo es 3S.',
-                  style: Theme.of(c).textTheme.labelSmall),
-              const SizedBox(height: 24),
-              Text('Tipo de batería', style: Theme.of(c).textTheme.labelLarge),
-              const SizedBox(height: 8),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'LIION', label: Text('Li-ion')),
-                  ButtonSegment(value: 'LIFEPO4', label: Text('LiFePO4')),
-                ],
-                selected: {quimica},
-                onSelectionChanged: (s) => setState(() => quimica = s.first),
-              ),
-              const SizedBox(height: 24),
-              TextField(
-                controller: cap,
-                keyboardType: const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(
-                  labelText: 'Capacidad nominal (Ah)',
-                  border: OutlineInputBorder(),
-                  helperText: 'El SOC y el SOH se calculan con este valor',
-                ),
-              ),
-              const SizedBox(height: 16),
-              _Banner(
-                icono: Icons.info_outline,
-                color: Colors.blueGrey,
-                texto: 'Con ${celdas}S ${quimica == 'LIION' ? 'Li-ion' : 'LiFePO4'} la Raspberry '
-                    'ajusta sola los cortes del banco: motor abajo de '
-                    '${(celdas * vmin).toStringAsFixed(1)} V y fuente arriba de '
-                    '${(celdas * vmax).toStringAsFixed(1)} V.',
-              ),
-              if (error != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: Text(error!, style: const TextStyle(color: Colors.red)),
-                ),
-              FilledButton.icon(
-                onPressed: guardando || b == null ? null : _guardar,
-                icon: guardando
-                    ? const SizedBox(
-                        width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.save),
-                label: const Text('Guardar'),
-              ),
-            ]),
+        Text('Arreglo (celdas en serie)', style: Theme.of(c).textTheme.labelLarge),
+        const SizedBox(height: 8),
+        SegmentedButton<int>(
+          segments: const [
+            ButtonSegment(value: 1, label: Text('1S')),
+            ButtonSegment(value: 2, label: Text('2S')),
+            ButtonSegment(value: 3, label: Text('3S')),
+          ],
+          selected: {celdas},
+          onSelectionChanged: (s) => setState(() => celdas = s.first),
+        ),
+        const SizedBox(height: 6),
+        Text('La placa mide 3 tomas (4V, 8V, 12V), por eso el máximo es 3S.',
+            style: Theme.of(c).textTheme.labelSmall),
+        const SizedBox(height: 24),
+        Text('Tipo de batería', style: Theme.of(c).textTheme.labelLarge),
+        const SizedBox(height: 8),
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'LIION', label: Text('Li-ion')),
+            ButtonSegment(value: 'LIFEPO4', label: Text('LiFePO4')),
+          ],
+          selected: {quimica},
+          onSelectionChanged: (s) => setState(() => quimica = s.first),
+        ),
+        const SizedBox(height: 24),
+        TextField(
+          controller: cap,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: const InputDecoration(
+            labelText: 'Capacidad nominal (Ah)',
+            border: OutlineInputBorder(),
+            helperText: 'El SOC y el SOH se calculan con este valor',
+          ),
+        ),
+        const SizedBox(height: 16),
+        _Banner(
+          icono: Icons.info_outline,
+          color: Colors.blueGrey,
+          texto: 'Con ${celdas}S ${quimica == 'LIION' ? 'Li-ion' : 'LiFePO4'} la Raspberry '
+              'ajusta sola los cortes del banco: motor abajo de '
+              '${(celdas * vmin).toStringAsFixed(1)} V y fuente arriba de '
+              '${(celdas * vmax).toStringAsFixed(1)} V.',
+        ),
+        if (error != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: Text(error!, style: const TextStyle(color: Colors.red)),
+          ),
+        FilledButton.icon(
+          onPressed: guardando || b == null ? null : _guardar,
+          icon: guardando
+              ? const SizedBox(
+              width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.save),
+          label: const Text('Guardar'),
+        ),
+      ]),
     );
   }
 }
