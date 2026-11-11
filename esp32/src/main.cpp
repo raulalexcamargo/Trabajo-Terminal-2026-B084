@@ -14,6 +14,9 @@
 //   RN09  Tendencia: ΔT > 5 °C en < 10 s o ΔV > 0.5 V en < 5 s -> alerta SIN corte
 //   RN10  Corriente > corr_max            -> desactiva Actuador 2 de inmediato
 //         (no está en RN04: se queda cortado hasta REARMAR desde la Raspberry)
+//         Arranque del motor: durante el primer segundo después de conectarlo solo se
+//         corta si la corriente pasa de 3 x corr_max, para no confundir el pico de
+//         arranque (corriente de irrupción) con una sobrecorriente.
 //   RN11  Modo de operación (lo elige el usuario en la app):
 //           APAGADO -> fuente y motor desactivados
 //           CARGA   -> solo la fuente; al llenarse el banco (RN03) pasa solo a APAGADO
@@ -25,6 +28,10 @@
 //   Actuador 1 = RL1 "Alimentación banco"  (fuente -> banco)  GPIO 26
 //   Actuador 2 = RL2 "Salida BMS"          (banco -> motor)   GPIO 27
 //
+// VERSIÓN DE PRODUCCIÓN: sin menús ni consola. Solo se comunica con la Raspberry
+// por UART2. Un watchdog reinicia el ESP32 si el programa se traba; al reiniciar
+// vuelve a aplicar RN05 (actuadores desactivados hasta lectura válida).
+//
 // No actives WiFi ni Bluetooth en este ESP32: GPIO 25, 14 y 12 son ADC2.
 // ============================================================================
 
@@ -32,6 +39,8 @@
 #include <math.h>
 #include <Preferences.h>
 #include <driver/rtc_io.h>  // Pull-Down en GPIO 32
+#include <esp_task_wdt.h>    // watchdog
+#include <esp_system.h>      // esp_reset_reason(): por qué se reinició
 
 // ============================================================================
 // 1. PINES
@@ -194,12 +203,15 @@ float v_banco = 0, t_max = 0;
 bool  sensores_ok = false;
 bool  inicio_seguro = false;   // RN05
 
+// RN10: ventana de arranque del motor (corriente de irrupción)
+const uint32_t ARRANQUE_MOTOR_MS = 1000;   // tiempo después de conectar el motor
+const float    FACTOR_ARRANQUE   = 3.0;    // límite durante el arranque = 3 x corr_max
+uint32_t t_motor_on = 0;                   // millis() en que se conectó el motor
+
 // RN11: modo de operación
 enum ModoOp { MODO_APAGADO = 0, MODO_CARGA = 1, MODO_MOTOR = 2 };
 ModoOp modo_op = MODO_APAGADO;                 // al arrancar: APAGADO (el motor nunca arranca solo)
 const char* NOMBRE_MODO[3] = {"APAGADO", "CARGA", "MOTOR"};
-bool  modo_prueba = false;     // 'P' en el monitor USB: mantenimiento, 60 s
-uint32_t t_prueba = 0;
 
 // ============================================================================
 // 5. REGLAS
@@ -252,7 +264,6 @@ void enviarEvento(const char* evento, const char* regla, const char* nombre, con
         a1 ? 1 : 0, a2 ? 1 : 0, v_banco, bms.i_carga, bms.i_descarga,
         bms.temp1, bms.temp2, extra);
     Serial2.println(linea);
-    Serial.printf("\n[EVENTO] %s %s (%s)\n", evento, regla, nombre);
 }
 
 // fuera:  la condición de la regla se cumple (ej. T > temp_max)
@@ -452,8 +463,14 @@ void evaluarReglas() {
         // RN03 sobrecarga
         evaluarRegla(reglas[R_RN03], v_banco > cfg.volt_max, v_banco < cfg.volt_max - cfg.hist_v_max, cfg.persist_ms);
     }
-    if (i_ok)  // RN10 inmediata (sin persistencia)
-        evaluarRegla(reglas[R_RN10], fabs(bms.i_descarga) > cfg.corr_max, false, 0);
+    if (i_ok) {  // RN10 inmediata (sin persistencia)
+        // Al arrancar, un motor de CD jala varias veces su corriente normal durante unos
+        // cientos de ms. En ese primer segundo el límite sube a 3 x corr_max (un corto
+        // circuito real lo rebasa igual y se corta en el acto).
+        const bool arrancando = bms.act2 && (millis() - t_motor_on < ARRANQUE_MOTOR_MS);
+        const float lim_i = arrancando ? cfg.corr_max * FACTOR_ARRANQUE : cfg.corr_max;
+        evaluarRegla(reglas[R_RN10], fabs(bms.i_descarga) > lim_i, false, 0);
+    }
 
     // RN11: fin automático de la operación
     if (modo_op == MODO_CARGA && reglas[R_RN03].activa) {
@@ -480,28 +497,16 @@ void evaluarReglas() {
 }
 
 void aplicarActuadores() {
-    bool a1 = true, a2 = true;
-
-    if (modo_prueba) {
-        if (millis() - t_prueba >= 60000) {
-            modo_prueba = false;
-            Serial.println("\n[!] Fin del modo PRUEBA");
-        } else {
-            a1 = bms.act1;  // lo que pidas con 1/2/A/S
-            a2 = bms.act2;
-        }
+    bool a1 = (modo_op == MODO_CARGA);            // RN11: el modo decide qué se puede conectar
+    bool a2 = (modo_op == MODO_MOTOR);
+    for (int i = 0; i < N_REGLAS; i++) {
+        if (!reglas[i].activa) continue;
+        if (reglas[i].corta_a1) a1 = false;
+        if (reglas[i].corta_a2) a2 = false;
     }
-    if (!modo_prueba) {
-        a1 = (modo_op == MODO_CARGA);             // RN11: el modo decide qué se puede conectar
-        a2 = (modo_op == MODO_MOTOR);
-        for (int i = 0; i < N_REGLAS; i++) {
-            if (!reglas[i].activa) continue;
-            if (reglas[i].corta_a1) a1 = false;
-            if (reglas[i].corta_a2) a2 = false;
-        }
-        if (!inicio_seguro) a1 = a2 = false;      // RN05
-    }
+    if (!inicio_seguro) a1 = a2 = false;          // RN05
 
+    if (a2 && !bms.act2) t_motor_on = millis();   // RN10: empieza la ventana de arranque
     bms.act1 = a1;
     bms.act2 = a2;
     digitalWrite(Pines::ACTUADOR_1, a1 ? NIVEL_ACTIVO : NIVEL_INACTIVO);
@@ -509,242 +514,8 @@ void aplicarActuadores() {
 }
 
 // ============================================================================
-// 8. COMANDOS
+// 8. COMANDOS DESDE LA RASPBERRY (RN08)
 // ============================================================================
-void tararSensoresEnCero() {
-    Serial.println("\n[*] Tarando sensores en 0.00 (sin carga ni corriente)...");
-    for (int i = 0; i < 5; i++) {
-        uint32_t suma_mv = 0;
-        for (int j = 0; j < Calibracion::MUESTRAS_V; j++) {
-            suma_mv += analogReadMilliVolts(Pines::LISTA_VOLT[i]);
-            delayMicroseconds(200);
-        }
-        umbral_vacio_v[i] = ((float)suma_mv / Calibracion::MUESTRAS_V) / 1000.0 + 0.015;
-    }
-    float c = leerCorriente(Pines::I_CARGA, 0.0);
-    float d = leerCorriente(Pines::I_DESCARGA, 0.0);
-    if (c > -60.0) offset_amp_carga = -c;
-    if (d > -60.0) offset_amp_descarga = -d;
-    Serial.println("[OK] Sensores ajustados a 0.00 en reposo.");
-    Serial.println("\n>>> Copia estas 3 lineas en main.cpp (la version final) para que la tara no se pierda:");
-    Serial.printf("float umbral_vacio_v[5] = {%.3f, %.3f, %.3f, %.3f, %.3f};\n",
-                  umbral_vacio_v[0], umbral_vacio_v[1], umbral_vacio_v[2], umbral_vacio_v[3], umbral_vacio_v[4]);
-    Serial.printf("float offset_amp_carga    = %.2f;\n", offset_amp_carga);
-    Serial.printf("float offset_amp_descarga = %.2f;\n\n", offset_amp_descarga);
-}
-
-extern const char* NOMBRE_CANAL[5];
-void imprimirConfig() {
-    Serial.printf("\n[CONFIG_SEGURIDAD] %dS | temp_max %.1f C | volt_min %.2f V | volt_max %.2f V | corr_max %.1f A\n",
-                  (int)cfg.n_celdas, cfg.temp_max, cfg.volt_min, cfg.volt_max, cfg.corr_max);
-    Serial.printf("  RN04 reconexion %lu s | rango seguro: T < %.1f, V > %.2f, V < %.2f | persistencia %lu ms\n",
-                  (unsigned long)cfg.t_reconexion_s, cfg.temp_max - cfg.hist_temp,
-                  cfg.volt_min + cfg.hist_v_min, cfg.volt_max - cfg.hist_v_max, (unsigned long)cfg.persist_ms);
-    Serial.printf("  RN09 tendencia: %.1f C en %lu ms, %.2f V en %lu ms\n",
-                  cfg.tend_dt, (unsigned long)cfg.tend_t_ms, cfg.tend_dv, (unsigned long)cfg.tend_v_ms);
-    Serial.print("  Voltimetros: ");
-    for (int i = 0; i < 5; i++)
-        Serial.printf("%s=%s  ", NOMBRE_CANAL[i], (calv.ver == VERSION_CALV && calv.ok[i]) ? "calibrado" : "regresion");
-    Serial.println();
-    if (!cal_desde_flash)
-        Serial.println("  ** Este ESP32 no tiene calibracion propia: se usa la de RESPALDO del codigo. "
-                       "Calibra con K para mayor precision. **");
-}
-
-// ---------------- Calibración de voltímetros por puntos (tecla K) ----------------
-//   K5      -> captura un punto: todas las entradas conectadas a una fuente de 5.00 V
-//   K12.6   -> otro punto (mínimo 2 voltajes distintos, mejor 3 o 4)
-//   KC      -> calcula, revisa que sea lineal y GUARDA en la flash
-//   KB      -> borra los puntos capturados (para empezar de nuevo)
-//   KX      -> borra la calibración guardada en este ESP32 (vuelve a la de RESPALDO del código)
-constexpr int MAX_PTS = 8;
-float pts_v[MAX_PTS];
-float pts_mv[MAX_PTS][5];
-int n_pts = 0;
-const char* NOMBRE_CANAL[5] = {"Entrada ", "Salida  ", "Toma 4V ", "Toma 8V ", "Toma 12V"};
-
-float promedioPin_mV(int pin, int muestras) {
-    analogRead(Pines::V_ENTRADA);
-    delayMicroseconds(200);
-    analogRead(pin);
-    delayMicroseconds(300);
-    uint32_t suma = 0;
-    for (int i = 0; i < muestras; i++) {
-        suma += analogReadMilliVolts(pin);
-        delayMicroseconds(200);
-    }
-    return suma / (float)muestras;
-}
-
-void ayudaCalibracion() {
-    Serial.println("\n[K] Calibracion de voltimetros:");
-    Serial.println("    1) Conecta la fuente a los voltimetros que quieras calibrar (pueden ser los 5 a la vez)");
-    Serial.println("    2) Mide la fuente con el MULTIMETRO y escribe K y ese voltaje, ej:  K5.02  y Enter");
-    Serial.println("    3) Cambia el voltaje y repite (minimo 2 puntos; recomendado 4: ~5, 8, 11 y 13 V)");
-    Serial.println("    4) Escribe KC para calcular y guardar.   KB = borrar puntos   KX = borrar calibracion");
-    Serial.printf ("    Puntos capturados: %d\n", n_pts);
-}
-
-void capturarPunto(float v_real) {
-    if (n_pts >= MAX_PTS) {
-        Serial.println("\n[K] Ya hay 8 puntos. Escribe KC para calcular o KB para empezar de nuevo.");
-        return;
-    }
-    pts_v[n_pts] = v_real;
-    Serial.printf("\n[K] Punto %d a %.3f V:\n", n_pts + 1, v_real);
-    for (int i = 0; i < 5; i++) {
-        pts_mv[n_pts][i] = promedioPin_mV(Pines::LISTA_VOLT[i], 256);
-        Serial.printf("    %s  %7.1f mV\n", NOMBRE_CANAL[i], pts_mv[n_pts][i]);
-    }
-    n_pts++;
-    Serial.printf("[K] %d punto(s). %s\n", n_pts,
-                  n_pts < 2 ? "Cambia el voltaje y captura otro." : "Captura otro o escribe KC.");
-}
-
-void calcularCalibracion() {
-    if (n_pts < 2) {
-        Serial.println("\n[K] Necesitas al menos 2 puntos con voltajes distintos.");
-        return;
-    }
-    CalVolt c = {};
-    c.ver = VERSION_CALV;
-    Serial.println("\n[K] Resultado (V = m * mV + b):");
-    for (int ch = 0; ch < 5; ch++) {
-        float mv_min = 1e9, mv_max = -1e9;
-        for (int k = 0; k < n_pts; k++) {
-            mv_min = min(mv_min, pts_mv[k][ch]);
-            mv_max = max(mv_max, pts_mv[k][ch]);
-        }
-        if (mv_max - mv_min < 15.0) {
-            Serial.printf("  %s  NO CALIBRADO: su salida casi no cambio (%.0f-%.0f mV). "
-                          "No estaba conectado o el AD620 no responde.\n", NOMBRE_CANAL[ch], mv_min, mv_max);
-            continue;
-        }
-        // Detectar el "piso" del AD620: con la pendiente de los 2 voltajes más altos se predice
-        // cuántos mV deberían tener los puntos bajos; si marcan más, la salida está pegada.
-        int i1 = 0, i2 = -1;
-        for (int k = 1; k < n_pts; k++) if (pts_v[k] > pts_v[i1]) i1 = k;
-        for (int k = 0; k < n_pts; k++) if (k != i1 && (i2 < 0 || pts_v[k] > pts_v[i2])) i2 = k;
-        bool usar[MAX_PTS];
-        int n_usar = 0;
-        float v_piso = -1;
-        float pend = (pts_v[i1] - pts_v[i2]) != 0
-                     ? (pts_mv[i1][ch] - pts_mv[i2][ch]) / (pts_v[i1] - pts_v[i2]) : 0;   // mV por V
-        for (int k = 0; k < n_pts; k++) {
-            float esperado = pts_mv[i2][ch] + pend * (pts_v[k] - pts_v[i2]);
-            usar[k] = !(pend > 0 && pts_mv[k][ch] > esperado + 10.0);
-            if (usar[k]) n_usar++; else v_piso = max(v_piso, pts_v[k]);
-        }
-        if (n_usar < 2) {
-            Serial.printf("  %s  NO CALIBRADO: menos de 2 puntos utiles.\n", NOMBRE_CANAL[ch]);
-            continue;
-        }
-        float mx = 0, my = 0;
-        for (int k = 0; k < n_pts; k++) if (usar[k]) { mx += pts_mv[k][ch]; my += pts_v[k]; }
-        mx /= n_usar; my /= n_usar;
-        float sxx = 0, sxy = 0;
-        for (int k = 0; k < n_pts; k++) if (usar[k]) {
-            sxx += (pts_mv[k][ch] - mx) * (pts_mv[k][ch] - mx);
-            sxy += (pts_mv[k][ch] - mx) * (pts_v[k] - my);
-        }
-        float m = sxx > 0 ? sxy / sxx : 0, b = my - m * mx;
-        if (m <= 0) {
-            Serial.printf("  %s  NO CALIBRADO: la salida baja cuando el voltaje sube. Revisa el cableado.\n",
-                          NOMBRE_CANAL[ch]);
-            continue;
-        }
-        float err_max = 0, v_err = 0;
-        for (int k = 0; k < n_pts; k++) if (usar[k]) {
-            float e = fabs(m * pts_mv[k][ch] + b - pts_v[k]);
-            if (e > err_max) { err_max = e; v_err = pts_v[k]; }
-        }
-        c.m[ch] = m; c.b[ch] = b; c.ok[ch] = 1;
-        Serial.printf("  %s  m=%.5f  b=%+.3f   error maximo %.2f V", NOMBRE_CANAL[ch], m, b, err_max);
-        if (err_max > 0.30) Serial.printf("  <- poco lineal en %.2f V", v_err);
-        Serial.println();
-        if (v_piso >= 0) {
-            float mv_suelo = 1e9;
-            for (int k = 0; k < n_pts; k++) if (!usar[k]) mv_suelo = min(mv_suelo, pts_mv[k][ch]);
-            Serial.printf("            ATENCION: la salida del AD620 no baja de ~%.0f mV. Mide bien solo arriba de "
-                          "~%.1f V\n            (el punto de %.2f V no se uso). Sube el offset/REF del modulo AD620.\n",
-                          mv_suelo, m * mv_suelo + b, v_piso);
-        }
-    }
-    calv = c;
-    cal_desde_flash = true;
-    nvs.begin("calv", false);
-    nvs.putBytes("cal", &calv, sizeof(CalVolt));
-    nvs.end();
-    Serial.println("[K] Guardado en la flash. Lo usaran main_consola.cpp y main.cpp aunque reinicies o vuelvas a subir el codigo.");
-}
-
-void procesarK(const char* txt) {
-    while (*txt == ' ') txt++;
-    if (*txt == '\0') { ayudaCalibracion(); return; }
-    char c0 = toupper(*txt);
-    if (c0 == 'C') { calcularCalibracion(); return; }
-    if (c0 == 'B') { n_pts = 0; Serial.println("\n[K] Puntos borrados."); return; }
-    if (c0 == 'X') {
-        nvs.begin("calv", false);
-        nvs.remove("cal");
-        nvs.end();
-        calv = CAL_RESPALDO;
-        cal_desde_flash = false;
-        Serial.println("\n[K] Calibracion de este ESP32 borrada: se usa la de RESPALDO del codigo.");
-        return;
-    }
-    if (!isdigit((unsigned char)*txt)) { ayudaCalibracion(); return; }
-    float v = atof(txt);
-    if (v < 0 || v > 100) { Serial.println("\n[K] Voltaje fuera de rango (0-100 V)."); return; }
-    capturarPunto(v);
-}
-
-// Monitor USB de VS Code (mantenimiento en la mesa)
-void verificarComandosUSB() {
-    static bool leyendo_k = false;
-    static char kbuf[16];
-    static size_t klen = 0;
-    while (Serial.available() > 0) {
-        char c = Serial.read();
-        if (leyendo_k) {                       // después de K se lee hasta Enter (ej. K12.6)
-            if (c == '\n' || c == '\r') {
-                kbuf[klen] = '\0';
-                leyendo_k = false;
-                procesarK(kbuf);
-            } else if (klen < sizeof(kbuf) - 1) {
-                kbuf[klen++] = c;
-            }
-            continue;
-        }
-        switch (c) {
-            case 'k': case 'K': leyendo_k = true; klen = 0; break;
-            case 'p': case 'P':
-                modo_prueba = !modo_prueba;
-                t_prueba = millis();
-                bms.act1 = bms.act2 = false;
-                Serial.printf("\n[!] Modo PRUEBA %s\n", modo_prueba
-                    ? "ACTIVO 60 s: reglas IGNORADAS. Usa 1, 2, A, S (sin banco ni motor)" : "terminado");
-                break;
-            case '1': if (modo_prueba) bms.act1 = !bms.act1; break;
-            case '2': if (modo_prueba) bms.act2 = !bms.act2; break;
-            case 'a': case 'A': if (modo_prueba) bms.act1 = bms.act2 = true;  break;
-            case 's': case 'S': if (modo_prueba) bms.act1 = bms.act2 = false; break;
-            case 'r': case 'R': rearmar(); break;
-            case 'z': case 'Z': tararSensoresEnCero(); break;
-            case 'c': case 'C': imprimirConfig(); break;
-            case 'o': case 'O': modo_op = MODO_APAGADO; Serial.println("\n[MODO] APAGADO"); break;
-            case 'g': case 'G':
-                if (reglas[R_RN03].activa) Serial.println("\n[MODO] No: el banco ya esta cargado (RN03)");
-                else { modo_op = MODO_CARGA; Serial.println("\n[MODO] CARGA"); }
-                break;
-            case 'm': case 'M':
-                if (reglas[R_RN02].activa || reglas[R_RN10].activa) Serial.println("\n[MODO] No: banco descargado o sobrecorriente");
-                else { modo_op = MODO_MOTOR; Serial.println("\n[MODO] MOTOR"); }
-                break;
-        }
-    }
-}
-
 bool leerNumero(const char* json, const char* clave, float& salida) {
     char patron[40];
     snprintf(patron, sizeof(patron), "\"%s\":", clave);
@@ -856,7 +627,7 @@ void leerUART_RPi() {
 }
 
 // ============================================================================
-// 9. TELEMETRÍA Y CONSOLA
+// 9. TELEMETRÍA
 // ============================================================================
 void enviarJSON_RPi() {
     char reglas_txt[200];
@@ -880,57 +651,27 @@ void enviarJSON_RPi() {
     snprintf(json, sizeof(json),
         "{\"v_in\":%.2f,\"v_out\":%.2f,\"v_4v\":%.2f,\"v_8v\":%.2f,\"v_12v\":%.2f,\"v_banco\":%.2f,"
         "\"i_carga\":%.2f,\"i_desc\":%.2f,\"temp1\":%.2f,\"temp2\":%.2f,"
-        "\"act1\":%d,\"act2\":%d,\"inicio_seguro\":%d,\"prueba\":%d,\"n_celdas\":%d,\"modo_op\":\"%s\","
+        "\"act1\":%d,\"act2\":%d,\"inicio_seguro\":%d,\"n_celdas\":%d,\"modo_op\":\"%s\","
         "\"reglas\":%s,\"espera_act1_s\":%lu,\"espera_act2_s\":%lu,\"tendencia_t\":%d,\"tendencia_v\":%d}",
         bms.v_in, bms.v_out, bms.v_4v, bms.v_8v, bms.v_12v, v_banco,
         bms.i_carga, bms.i_descarga, bms.temp1, bms.temp2,
-        bms.act1 ? 1 : 0, bms.act2 ? 1 : 0, inicio_seguro ? 1 : 0, modo_prueba ? 1 : 0, (int)cfg.n_celdas, NOMBRE_MODO[modo_op],
+        bms.act1 ? 1 : 0, bms.act2 ? 1 : 0, inicio_seguro ? 1 : 0, (int)cfg.n_celdas, NOMBRE_MODO[modo_op],
         reglas_txt, (unsigned long)espera1, (unsigned long)espera2, hay_alerta_t ? 1 : 0, hay_alerta_v ? 1 : 0);
     Serial2.println(json);
-}
-
-void mostrarDashboardConsola() {
-    Serial.println("\n╔══════════════════════════════════════════════════════════════╗");
-    Serial.printf ("║  ECU BMS %-10s  banco %6.2f V   Tmax %6.2f °C          ║\n",
-                   modo_prueba ? "[PRUEBA]" : (inicio_seguro ? NOMBRE_MODO[modo_op] : "[RN05]"), v_banco, t_max);
-    Serial.println("╠══════════════════════════════╦═══════════════════════════════╣");
-    Serial.printf ("║ Entrada  :%6.2f V %5.0f mV ║ I carga    : %8.2f A       ║\n", bms.v_in, mv_crudo[0], bms.i_carga);
-    Serial.printf ("║ Salida   :%6.2f V %5.0f mV ║ I descarga : %8.2f A       ║\n", bms.v_out, mv_crudo[1], bms.i_descarga);
-    Serial.printf ("║ Toma 4V  :%6.2f V %5.0f mV ║ Temp 1     : %8.2f °C      ║\n", bms.v_4v, mv_crudo[2], bms.temp1);
-    Serial.printf ("║ Toma 8V  :%6.2f V %5.0f mV ║ Temp 2     : %8.2f °C      ║\n", bms.v_8v, mv_crudo[3], bms.temp2);
-    Serial.printf ("║ Toma 12V :%6.2f V %5.0f mV ║                               ║\n", bms.v_12v, mv_crudo[4]);
-    Serial.println("╠══════════════════════════════╩═══════════════════════════════╣");
-    Serial.printf ("║ Actuador 1 (fuente) : %-8s  Actuador 2 (motor) : %-8s ║\n",
-                   bms.act1 ? "ACTIVO" : "CORTADO", bms.act2 ? "ACTIVO" : "CORTADO");
-    Serial.println("║ Modo: [O] apagado  [G] cargar  [M] motor                     ║");
-    Serial.println("║ [P] prueba [R] rearmar [Z] tarar [C] config [K] calibrar V   ║");
-    Serial.println("╚══════════════════════════════════════════════════════════════╝");
-    Serial.print("  Reglas activas: ");
-    bool alguna = false;
-    for (int i = 0; i < N_REGLAS; i++) {
-        if (!reglas[i].activa) continue;
-        alguna = true;
-        uint32_t s = reglas[i].segundosParaReconectar();
-        if (reglas[i].enclavada)  Serial.printf("%s %s (rearmar)  ", reglas[i].id, reglas[i].nombre);
-        else if (s > 0)           Serial.printf("%s %s (reconecta en %lus)  ", reglas[i].id, reglas[i].nombre, (unsigned long)s);
-        else                      Serial.printf("%s %s  ", reglas[i].id, reglas[i].nombre);
-    }
-    Serial.println(alguna ? "" : "ninguna");
 }
 
 // ============================================================================
 // 10. SETUP Y LOOP
 // ============================================================================
 void setup() {
-    Serial.begin(115200);
-    Serial2.setRxBufferSize(1024);
-    Serial2.begin(115200, SERIAL_8N1, Pines::UART2_RX, Pines::UART2_TX);
-
     // RN05: actuadores desactivados desde el primer instante
     pinMode(Pines::ACTUADOR_1, OUTPUT);
     pinMode(Pines::ACTUADOR_2, OUTPUT);
     digitalWrite(Pines::ACTUADOR_1, NIVEL_INACTIVO);
     digitalWrite(Pines::ACTUADOR_2, NIVEL_INACTIVO);
+
+    Serial2.setRxBufferSize(1024);
+    Serial2.begin(115200, SERIAL_8N1, Pines::UART2_RX, Pines::UART2_TX);
 
     pinMode(Pines::I_CARGA, INPUT_PULLDOWN);
     pinMode(Pines::I_DESCARGA, INPUT_PULLDOWN);
@@ -939,22 +680,45 @@ void setup() {
 
     cargarConfig();
     cargarCalibracionVolt();
-    delay(1000);
-    imprimirConfig();
-    Serial.println("ECU BMS iniciada: actuadores desactivados hasta lectura valida (RN05)");
+
+    // Watchdog: si loop() deja de ejecutarse 8 s, el ESP32 se reinicia solo
+#if defined(ESP_ARDUINO_VERSION_MAJOR) && ESP_ARDUINO_VERSION_MAJOR >= 3
+    esp_task_wdt_config_t wdt = {8000, 0, true};   // timeout_ms, idle_core_mask, trigger_panic
+    esp_task_wdt_reconfigure(&wdt);
+#else
+    esp_task_wdt_init(8, true);
+#endif
+    esp_task_wdt_add(NULL);
+
+    enviarConfigRPi();   // la Raspberry sabe con qué umbrales arrancó
+
+    // Avisar a la Raspberry por qué arrancó el ESP32. Si fue una caída de voltaje (BROWNOUT)
+    // o el watchdog, queda registrado: explica por qué el modo volvió solo a APAGADO.
+    const char* causa;
+    switch (esp_reset_reason()) {
+        case ESP_RST_POWERON:  causa = "ENCENDIDO"; break;
+        case ESP_RST_BROWNOUT: causa = "BROWNOUT"; break;
+        case ESP_RST_TASK_WDT:
+        case ESP_RST_INT_WDT:
+        case ESP_RST_WDT:      causa = "WATCHDOG"; break;
+        case ESP_RST_PANIC:    causa = "PANIC"; break;
+        case ESP_RST_EXT:      causa = "BOTON_EN"; break;
+        case ESP_RST_SW:       causa = "SOFTWARE"; break;
+        default:               causa = "OTRO"; break;
+    }
+    enviarEvento("REINICIO_ESP32", "RN05", causa);
 }
 
 void loop() {
-    static uint32_t t_json = 0, t_consola = 0;
+    static uint32_t t_json = 0;
 
     leerSensores();          // ~250 ms
     evaluarReglas();         // RN01-RN05, RN09, RN10
     aplicarActuadores();
 
     uint32_t ahora = millis();
-    if (ahora - t_json >= 500) { enviarJSON_RPi(); t_json = ahora; }          // Tabla 4: 200-500 ms
-    if (ahora - t_consola >= 1000) { mostrarDashboardConsola(); t_consola = ahora; }
+    if (ahora - t_json >= 500) { enviarJSON_RPi(); t_json = ahora; }   // Tabla 4: 200-500 ms
 
-    verificarComandosUSB();
     leerUART_RPi();
+    esp_task_wdt_reset();
 }
