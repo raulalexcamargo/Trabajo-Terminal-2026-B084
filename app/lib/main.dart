@@ -251,11 +251,12 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
     'modo': 'DESCARGA',
     'tiempo_restante_s': 9270,
     'tiempo_hasta': 'vacio',
+    'modo_op': 'MOTOR',
     'desbalance_mv': 10.0,
     'alertas': [],
     'corte_activo': false,
     'conectado': false,
-    'actuadores': {'fuente': 1, 'motor': 1, 'espera_fuente_s': 0, 'espera_motor_s': 0},
+    'actuadores': {'fuente': 0, 'motor': 1, 'espera_fuente_s': 0, 'espera_motor_s': 0},
     'inicio_seguro': true,
     'reglas_activas': [],
   });
@@ -578,21 +579,7 @@ class _TarjetaControlState extends State<_TarjetaControl> {
   Future<void> _cambiar(String modo) async {
     final api = widget.api;
     if (api == null || modo == widget.e.modoOp) return;
-    if (modo == 'MOTOR') {
-      final ok = await showDialog<bool>(
-        context: context,
-        builder: (d) => AlertDialog(
-          icon: const Icon(Icons.speed),
-          title: const Text('¿Encender el motor?'),
-          content: const Text('Se desconectará la fuente de carga mientras el motor esté encendido.'),
-          actions: [
-            TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancelar')),
-            FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Encender')),
-          ],
-        ),
-      );
-      if (ok != true || !mounted) return;
-    }
+    // El motor se enciende directo, igual que la carga: sin diálogo de confirmación.
     setState(() {
       _enviando = true;
       _pedido = modo;
@@ -766,7 +753,9 @@ class _TarjetaSoc extends StatelessWidget {
 
   @override
   Widget build(BuildContext c) {
-    final (etiqueta, icono, color) = switch (e.modo) {
+    // CARGANDO / DESCARGANDO según el modo elegido y si pasa corriente (ver EstadoBanco.flujo)
+    final flujo = e.flujo;
+    final (etiqueta, icono, color) = switch (flujo) {
       ModoBanco.carga => ('CARGANDO', Icons.arrow_downward, Colors.green),
       ModoBanco.descarga => ('DESCARGANDO', Icons.arrow_upward, Colors.orange),
       ModoBanco.reposo => ('EN REPOSO', Icons.pause, Colors.blueGrey),
@@ -786,7 +775,7 @@ class _TarjetaSoc extends StatelessWidget {
             height: 110,
             child: BateriaWidget(
               soc: e.soc,
-              modo: e.modo,
+              modo: flujo,
               numCeldas: e.vCeldas.isEmpty ? 3 : e.vCeldas.length,
               corteActivo: e.corteActivo,
             ),
@@ -794,7 +783,10 @@ class _TarjetaSoc extends StatelessWidget {
           const SizedBox(height: 8),
           Text('${e.soc.toStringAsFixed(0)} %',
               style: const TextStyle(fontSize: 44, fontWeight: FontWeight.w300)),
-          if (e.tiempoRestanteS != null && e.tiempoHasta != null)
+          // el tiempo solo se muestra si coincide con lo que está pasando
+          if (e.tiempoRestanteS != null &&
+              ((flujo == ModoBanco.carga && e.tiempoHasta == 'lleno') ||
+                  (flujo == ModoBanco.descarga && e.tiempoHasta == 'vacio')))
             Row(mainAxisAlignment: MainAxisAlignment.center, children: [
               Icon(Icons.schedule,
                   size: 16, color: e.tiempoHasta == 'lleno' ? Colors.green : Colors.orange),
@@ -809,7 +801,7 @@ class _TarjetaSoc extends StatelessWidget {
           const SizedBox(height: 12),
           Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
             _Metrica('SOH', '${e.soh.toStringAsFixed(0)} %'),
-            _MetricaPotencia(e.potenciaW),
+            _MetricaPotencia(e.potenciaFlujoW),
             if (e.vPack != null) _Metrica('Banco', '${e.vPack!.toStringAsFixed(2)} V'),
           ]),
         ]),

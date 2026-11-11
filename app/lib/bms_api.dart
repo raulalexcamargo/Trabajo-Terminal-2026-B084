@@ -111,6 +111,32 @@ class EstadoBanco {
   final int? tiempoRestanteS; // tiempo estimado (con la corriente promedio de ~30 s)
   final String? tiempoHasta; // 'lleno' (cargando) | 'vacio' (descargando) | null
 
+  // ---- Qué está pasando con el banco (lo que se muestra en la tarjeta del banco) ----
+  // Se decide con el MODO elegido y con si de verdad pasa corriente por el sensor de ese lado,
+  // sin importar el signo del amperímetro: en modo Carga la energía solo puede ENTRAR al banco
+  // y en modo Motor solo puede SALIR. Si no pasa corriente (por ejemplo, no hay fuente
+  // conectada), se muestra EN REPOSO.
+  static const double iMinA = 0.15; // misma corriente mínima que usa la Raspberry (I_REPOSO_A)
+
+  /// Corriente que pasa por la línea de la fuente (A, sin signo). 0 si el relé está abierto.
+  double get iFuenteA => actFuente == false ? 0 : (valores['I_CARGA'] ?? 0).abs();
+
+  /// Corriente que pasa por la línea del motor (A, sin signo). 0 si el relé está abierto.
+  double get iMotorA => actMotor == false ? 0 : (valores['I_DESC'] ?? 0).abs();
+
+  ModoBanco get flujo {
+    if (modoOp == 'CARGA' && iFuenteA >= iMinA) return ModoBanco.carga;
+    if (modoOp == 'MOTOR' && iMotorA >= iMinA) return ModoBanco.descarga;
+    return ModoBanco.reposo;
+  }
+
+  /// Potencia del banco: + entra (carga), - sale (motor). 0 en reposo.
+  double get potenciaFlujoW => switch (flujo) {
+    ModoBanco.carga => (vPack ?? 0) * iFuenteA,
+    ModoBanco.descarga => -(vPack ?? 0) * iMotorA,
+    ModoBanco.reposo => 0.0,
+  };
+
   EstadoBanco.fromJson(Map<String, dynamic> j)
       : bancoId = j['banco_id'] ?? 'B1',
         valores = (j['valores'] as Map? ?? {})
