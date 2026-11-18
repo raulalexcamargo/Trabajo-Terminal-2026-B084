@@ -5,7 +5,7 @@
 //   - el modo de operación (RN11): Apagado / Cargar batería / Motor
 //   - los datos del banco (arreglo, tipo de batería y capacidad nominal)
 //   - los límites de seguridad (temperatura, voltajes, corriente, tiempos)
-// El rearme tras sobrecorriente (RN10) sigue siendo solo en la terminal de la Raspberry.
+//   - rearmar el motor después de una sobrecorriente (RN10)
 
 import 'dart:async';
 import 'dart:convert';
@@ -307,6 +307,21 @@ class BmsApi {
     )
         .timeout(_timeout);
     return (_json(r) as Map)['modo'] as String;
+  }
+
+  /// RN10: rearma el motor después de una sobrecorriente. Devuelve el mensaje de la Raspberry
+  /// (por ejemplo "Rearme enviado..." o "No hay sobrecorriente activa..."). Lanza Exception si
+  /// el ESP32 no está conectado.
+  Future<String> rearmar() async {
+    final r = await http.put(_u('/api/rearmar')).timeout(_timeout);
+    return (_json(r) as Map)['mensaje'] as String? ?? 'Rearme enviado';
+  }
+
+  /// Tara de los sensores de corriente: el ESP32 los pone en 0 A y guarda el ajuste en su memoria.
+  /// Solo funciona en modo Apagado; si no, la Raspberry responde 409 con el motivo (se lanza Exception).
+  Future<String> tarar() async {
+    final r = await http.put(_u('/api/tarar')).timeout(const Duration(seconds: 8));
+    return (_json(r) as Map)['mensaje'] as String? ?? 'Sensores tarados';
   }
 
   /// Límites de seguridad y avisos (pantalla editable).

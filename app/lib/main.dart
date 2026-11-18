@@ -286,10 +286,12 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
         conectando: conectando,
         errorConexion: errorConexion,
         api: _api,
+        rn10Activa: conectado && e.reglasActivas.contains('RN10'),
         onCambiarHost: (h) => host = h,
         onConectar: _conectar,
         onDesconectar: _desconectar,
       ),
+      const VistaEquipo(),
     ];
 
     final nAlertas = conectado ? e.alertas.length : 0;
@@ -323,6 +325,11 @@ class _PantallaPrincipalState extends State<PantallaPrincipal> {
                 color: conectado ? Colors.green : Colors.orange),
             selectedIcon: const Icon(Icons.settings),
             label: 'Ajustes',
+          ),
+          const NavigationDestination(
+            icon: Icon(Icons.groups_outlined),
+            selectedIcon: Icon(Icons.groups),
+            label: 'Equipo',
           ),
         ],
       ),
@@ -613,7 +620,7 @@ class _TarjetaControlState extends State<_TarjetaControl> {
       aviso = 'El banco está cargado: no se puede elegir Cargar.';
     } else if (bloqueoMotor) {
       aviso = e.reglasActivas.contains('RN10')
-          ? 'Hubo sobrecorriente: rearma en la Raspberry (bms rearmar) antes de usar el motor.'
+          ? 'Hubo sobrecorriente: rearma en Ajustes → Rearmar motor antes de usarlo.'
           : 'El banco está descargado: cárgalo antes de usar el motor.';
     }
     return Card(
@@ -675,7 +682,7 @@ class _TarjetaReles extends StatelessWidget {
     'RN02': 'banco descargado',
     'RN03': 'banco cargado',
     'RN05': 'falla de sensor',
-    'RN10': 'sobrecorriente (rearmar en la Raspberry)',
+    'RN10': 'sobrecorriente (rearmar en Ajustes)',
   };
 
   static const _nombreModo = {'APAGADO': 'Apagado', 'CARGA': 'Cargar batería', 'MOTOR': 'Motor'};
@@ -1069,6 +1076,7 @@ class _VistaAjustesConexion extends StatefulWidget {
   final bool conectando;
   final String? errorConexion;
   final BmsApi? api;
+  final bool rn10Activa; // hubo sobrecorriente y el motor espera rearme
   final ValueChanged<String> onCambiarHost;
   final VoidCallback onConectar;
   final VoidCallback onDesconectar;
@@ -1079,6 +1087,7 @@ class _VistaAjustesConexion extends StatefulWidget {
     required this.conectando,
     required this.errorConexion,
     required this.api,
+    this.rn10Activa = false,
     required this.onCambiarHost,
     required this.onConectar,
     required this.onDesconectar,
@@ -1091,6 +1100,31 @@ class _VistaAjustesConexion extends StatefulWidget {
 class _VistaAjustesConexionState extends State<_VistaAjustesConexion> {
   late final TextEditingController _ctrlHost =
   TextEditingController(text: widget.hostInicial);
+  bool _rearmando = false;
+
+  /// RN10: botón "Rearmar motor". La Raspberry le pide al ESP32 liberar el corte por sobrecorriente.
+  Future<void> _rearmar(BuildContext c) async {
+    final api = widget.api;
+    if (api == null) {
+      ScaffoldMessenger.of(c).showSnackBar(const SnackBar(
+          content: Text('Primero conéctate a la Raspberry.')));
+      return;
+    }
+    setState(() => _rearmando = true);
+    try {
+      final msg = await api.rearmar();
+      if (!mounted) return;
+      ScaffoldMessenger.of(c).showSnackBar(SnackBar(content: Text(msg)));
+    } catch (err) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(c).showSnackBar(SnackBar(
+        backgroundColor: Colors.orange.shade800,
+        content: Text('$err'.replaceFirst('Exception: ', '')),
+      ));
+    } finally {
+      if (mounted) setState(() => _rearmando = false);
+    }
+  }
 
   @override
   void didUpdateWidget(_VistaAjustesConexion old) {
@@ -1214,6 +1248,25 @@ class _VistaAjustesConexionState extends State<_VistaAjustesConexion> {
                 subtitle: const Text('Temperatura, voltajes, corriente y tiempos'),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _abrir(c, (api) => PantallaUmbrales(api: api)),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: Icon(Icons.restart_alt,
+                    color: widget.rn10Activa ? Colors.red : Colors.blueGrey),
+                title: const Text('Rearmar motor'),
+                subtitle: Text(widget.rn10Activa
+                    ? 'Hubo sobrecorriente (RN10): revisa el motor y rearma para volver a usarlo'
+                    : 'Solo hace falta después de una sobrecorriente (RN10)'),
+                trailing: _rearmando
+                    ? const SizedBox(
+                    width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))
+                    : FilledButton(
+                  onPressed: widget.conectado ? () => _rearmar(c) : null,
+                  style: widget.rn10Activa
+                      ? FilledButton.styleFrom(backgroundColor: Colors.red)
+                      : null,
+                  child: const Text('Rearmar'),
+                ),
               ),
             ]),
           ),
@@ -1352,7 +1405,7 @@ class _PantallaUmbralesState extends State<PantallaUmbrales> {
         final v = _num('volt_max'), h = _num('hist_v_max');
         return 'La fuente vuelve abajo de ${f(v != null && h != null ? v - h : null)} V';
       case 'corr_max':
-        return 'Arriba de esto se corta el motor y hay que rearmar';
+        return 'Arriba de esto se corta el motor y hay que rearmar (Ajustes → Rearmar motor)';
       case 't_reconexion_s':
         return 'Tiempo seguido en rango seguro antes de reconectar';
       case 'aviso_temp_c':
@@ -1381,6 +1434,38 @@ class _PantallaUmbralesState extends State<PantallaUmbrales> {
       return;
     }
     await _enviar(() => widget.api.guardarConfig(cambios), 'Guardado y enviado al ESP32');
+  }
+
+  /// Botón "Tarar": pone en 0 A los dos sensores de corriente (igual que la tecla Z de la consola del ESP32).
+  Future<void> _tarar() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        icon: const Icon(Icons.exposure_zero),
+        title: const Text('¿Tarar los sensores de corriente?'),
+        content: const Text('El ESP32 tomará la lectura actual de los dos sensores como 0 A y la guardará en su memoria.\n\n'
+            'Antes: pon el modo en Apagado, desconecta la fuente y espera a que el motor se detenga, '
+            'para que no pase corriente.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(d, false), child: const Text('Cancelar')),
+          FilledButton(onPressed: () => Navigator.pop(d, true), child: const Text('Tarar')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    setState(() {
+      _guardando = true;
+      _error = null;
+    });
+    try {
+      final msg = await widget.api.tarar();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e'.replaceFirst('Exception: ', ''));
+    } finally {
+      if (mounted) setState(() => _guardando = false);
+    }
   }
 
   Future<void> _restaurar() async {
@@ -1470,8 +1555,20 @@ class _PantallaUmbralesState extends State<PantallaUmbrales> {
         icon: const Icon(Icons.restart_alt),
         label: const Text('Restaurar valores por defecto'),
       ),
+      const SizedBox(height: 24),
+      Text('Sensores de corriente',
+          style: Theme.of(c).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+      const SizedBox(height: 4),
+      Text('Si con todo apagado los amperímetros no marcan 0 A, tara los sensores. Hazlo en modo Apagado '
+          'y sin corriente pasando.', style: Theme.of(c).textTheme.bodySmall),
+      const SizedBox(height: 8),
+      FilledButton.tonalIcon(
+        onPressed: _guardando ? null : _tarar,
+        icon: const Icon(Icons.exposure_zero),
+        label: const Text('Tarar sensores de corriente'),
+      ),
       const SizedBox(height: 16),
-      Text('El rearme después de una sobrecorriente (RN10) se hace en la Raspberry: bms rearmar',
+      Text('El rearme después de una sobrecorriente (RN10) está en Ajustes → Rearmar motor',
           style: Theme.of(c).textTheme.labelSmall),
     ]),
   );
@@ -1615,6 +1712,75 @@ class _PantallaBancoState extends State<PantallaBanco> {
           label: const Text('Guardar'),
         ),
       ]),
+    );
+  }
+}
+
+
+// ============================================================
+//  Equipo: número del Trabajo Terminal, sinodales, directores e integrantes
+// ============================================================
+class VistaEquipo extends StatelessWidget {
+  const VistaEquipo({super.key});
+
+  // Para cambiar un nombre, edita solo estas listas.
+  static const _tt = 'TT 2026-B084';
+  static const _sinodales = <String>[
+    'Eduardo Rodríguez Flores',
+    'Iván Díaz Toalá',
+    'Rubén Ortega González',
+  ];
+  static const _directores = <String>[
+    'M. en C. Ismael Cervantes de Anda',
+    'Dr. Raúl Santillán Luna',
+  ];
+  static const _integrantes = <String>[
+    'Carlos Cerón Maldonado',
+    'Raúl Alejandro Moreno Camargo',
+    'Fernando Reyes Vivar',
+  ];
+
+  @override
+  Widget build(BuildContext c) {
+    final t = Theme.of(c);
+    Widget grupo(String titulo, IconData icono, List<String> nombres) => Card(
+      margin: const EdgeInsets.only(bottom: 12),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(icono, color: t.colorScheme.primary),
+            const SizedBox(width: 10),
+            Text(titulo, style: t.textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
+          ]),
+          const SizedBox(height: 6),
+          for (final n in nombres)
+            Padding(
+              padding: const EdgeInsets.only(left: 34, top: 4, bottom: 6),
+              child: Text(n, style: t.textTheme.bodyLarge),
+            ),
+        ]),
+      ),
+    );
+
+    return Scaffold(
+      appBar: AppBar(title: const Text('Equipo')),
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: ListView(padding: const EdgeInsets.all(16), children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 20),
+              child: Text(_tt,
+                  textAlign: TextAlign.center,
+                  style: t.textTheme.headlineMedium?.copyWith(fontWeight: FontWeight.bold)),
+            ),
+            grupo('Sinodales', Icons.how_to_reg_outlined, _sinodales),
+            grupo('Directores', Icons.school_outlined, _directores),
+            grupo('Integrantes', Icons.groups_outlined, _integrantes),
+          ]),
+        ),
+      ),
     );
   }
 }
